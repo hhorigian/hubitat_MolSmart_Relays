@@ -1,5 +1,5 @@
 /**
- *  MolRelay Relays
+ *  MolSmart Relays Driver
  *
  *  Copyright 2024 VH
  *
