@@ -13,6 +13,7 @@
  *  for the specific language governing permissions and limitations under the License.
  *        
  *        Versão 1.0 25/4/2024  - V.BETA 1
+ *	  1.1 30/4/2024  - correção do indexof para verificar os digitos de Network ID. 
  *
  */
 metadata {
@@ -33,7 +34,7 @@ command "buscainputcount"
 command "createchilds"
 
   preferences {
-        input "device_IP_address", "text", title: "IP Address of Device", required: true, defaultValue: "192.168"   
+        input "device_IP_address", "text", title: "IP Address of Device", required: true, defaultValue: "192.168.10.55"   
         input "device_port", "number", title: "IP Port of Device", required: true, defaultValue: 502
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
         input name: "powerstatus", type: "string", title: "Power Status" 
@@ -399,21 +400,31 @@ cd.updateDataValue("Power","On")
 ipdomodulo  = state.ipaddress
 lengthvar =  (cd.deviceNetworkId.length())
 int relay = 0
-if (lengthvar < 13) {
-    def numervalue1 = (cd.deviceNetworkId as String)[11]
-    def valor = ""
-    valor =   numervalue1 as Integer
-    relay = valor   
-    }
+/// Inicio verificación del length    
+      def substr1 = (cd.deviceNetworkId.indexOf("-",4))
+      def result01 = lengthvar - substr1 
+      if (result01 > 2  ) {
+           def  substr2a = substr1 + 1
+           def  substr2b = substr1 + 2
+           def substr3 = cd.deviceNetworkId[substr2a..substr2b]
+           numervalue1 = substr3
 
-    else 
-   
-{
-    def numervalue2 = (cd.deviceNetworkId as String)[12] 
+           
+          
+      }
+      else {
+          def substr3 = cd.deviceNetworkId[substr1+1]
+          numervalue1 = substr3
+        
+           }
+
     def valor = ""
-    valor =   numervalue2 as Integer
-    relay = valor 
-}
+    log.info numervalue1
+    valor =   numervalue1 as Integer
+    log.info  valor
+    relay = valor   
+
+ ////
      def stringrelay = relay
      def comando = "1" + stringrelay
      interfaces.rawSocket.sendMessage(comando)
@@ -434,21 +445,26 @@ cd.updateDataValue("Power","Off")
 ipdomodulo  = state.ipaddress
 lengthvar =  (cd.deviceNetworkId.length())
 int relay = 0
-if (lengthvar < 13) {
-    def numervalue1 = (cd.deviceNetworkId as String)[11]
+/// Inicio verificación del length    
+      def substr1 = (cd.deviceNetworkId.indexOf("-",4))
+      def result01 = lengthvar - substr1 
+      if (result01 > 2  ) {
+           def  substr2a = substr1 + 1
+           def  substr2b = substr1 + 2
+           def substr3 = cd.deviceNetworkId[substr2a..substr2b]
+           numervalue1 = substr3
+          
+      }
+      else {
+          def substr3 = cd.deviceNetworkId[substr1+1]
+          numervalue1 = substr3
+           }
+
     def valor = ""
     valor =   numervalue1 as Integer
     relay = valor   
-    }
 
-    else 
-    
-{
-    def numervalue2 = (cd.deviceNetworkId as String)[12] 
-    def valor = ""
-    valor =   numervalue2 as Integer
-    relay = valor 
-}
+ ////
      def stringrelay = relay
      def comando = "2" + stringrelay
      interfaces.rawSocket.sendMessage(comando)
