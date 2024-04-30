@@ -114,7 +114,7 @@ def initialize() {
 	    logDebug "initialize(): adding driver = " + contactName
         
         def contactDev = getChildDevice(contactName)
-	    if(!contactDev) contactDev = addChildDevice("TRATO", "MolSmart Relays Driver", contactName, null, [name: "MolRelay " + Integer.toString(i), inputNumber: thisName])
+	    if(!contactDev) contactDev = addChildDevice("TRATO", "MolSmart Relays Driver (HTTP)", contactName, null, [name: "MolRelay " + Integer.toString(i), inputNumber: thisName])
 
     
     }
