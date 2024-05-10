@@ -1,5 +1,5 @@
 /**
- *  Hubitat - TCP MolSmart Relay Drivers by TRATO - BETA OK
+ *  Hubitat - TCP MolSmart Relay Drivers by TRATO - 
  *
  *  Copyright 2024 VH
  *
@@ -13,7 +13,9 @@
  *  for the specific language governing permissions and limitations under the License.
  *        
  *        Versão 1.0 25/4/2024  - V.BETA 1
- *	  1.1 30/4/2024  - correção do indexof para verificar os digitos de Network ID. 
+ *	  1.1 30/4/2024  - correção do indexof para verificar os digitos de Network ID. Lineas 449 e 494, precisa ver quantos digitos vai ter o network id. Agora ficou para começar
+ * 	  depois do "5" digito para ver depspues del "-". 
+ *        1.2 05/10/2024 - Adição do Check cada 5 minutos para keepalive. Adição de botão manual para KeepAlive. 
  *
  */
 metadata {
@@ -32,12 +34,15 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 command "buscainputcount"
 command "createchilds"
+command "connectionCheck"
+command "keepalivemol"
+//command "clearAllvalues"
 
   preferences {
-        input "device_IP_address", "text", title: "IP Address of Device", required: true, defaultValue: "192.168.10.55"   
+        input "device_IP_address", "text", title: "MolSmart IP Address", required: true, defaultValue: "192.168.10.55"   
         input "device_port", "number", title: "IP Port of Device", required: true, defaultValue: 502
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
-        input name: "powerstatus", type: "string", title: "Power Status" 
+        //input name: "powerstatus", type: "string", title: "Power Status" 
 
     input 'logInfo', 'bool', title: 'Show Info Logs?',  required: false, defaultValue: true
     input 'logWarn', 'bool', title: 'Show Warning Logs?', required: false, defaultValue: true
@@ -78,8 +83,43 @@ def updated() {
 def configure() {
     logTrace('configure()')
     unschedule()
+
 }
 
+def clearAllvalues() {
+    logTrace('clearAllvalues()')
+    unschedule()
+    state.clear()
+    interfaces.rawSocket.close();
+
+}
+
+def keepalivemol (){
+
+   logTrace('keepalivemol()')
+    unschedule()
+    interfaces.rawSocket.close();
+    state.clear()
+    def novaprimeira = ""
+    def oldprimeira = ""
+    partialMessage = '';
+
+    //Llama la busca de count de inputs+outputs
+    buscainputcount()
+    
+    try {
+        logTrace("tentando conexão com o device no ${device_IP_address}...na porta ${device_port}");
+        int i = 502
+        interfaces.rawSocket.connect(device_IP_address, (int) device_port);
+        state.lastMessageReceivedAt = now();        
+        runIn(checkInterval, "connectionCheck");
+        refresh();  // se estava offline, preciso fazer um refresh
+    }
+    catch (e) {
+        logError( "${device_IP_address} initialize error: ${e.message}" )
+        //runIn(60, "initialize");
+    }    
+}
 
 
 def initialize() {
@@ -107,7 +147,7 @@ def initialize() {
         logTrace("tentando conexão com o device no ${device_IP_address}...na porta ${device_port}");
         int i = 502
         interfaces.rawSocket.connect(device_IP_address, (int) device_port);
-        state.lastMessageReceivedAt = now();
+        state.lastMessageReceivedAt = now();        
         runIn(checkInterval, "connectionCheck");
         refresh();  // se estava offline, preciso fazer um refresh
     }
@@ -115,15 +155,21 @@ def initialize() {
         logError( "${device_IP_address} initialize error: ${e.message}" )
         runIn(60, "initialize");
     }
-    createchilds()
-       
+    
+    try{
+         logTrace("criando childs")
+          createchilds()       
+    }
+    catch (e) {
+        logError( "initialize error: ${e.message}" )
+    }    
 }
 
 
 def createchilds() {
 
     String thisId = device.id
-	log.info "info thisid " + thisId
+	//log.info "info thisid " + thisId
 	def cd = getChildDevice("${thisId}-Switch")
     state.netids = "${thisId}-Switch-"
 	if (!cd) {
@@ -179,7 +225,7 @@ def buscainputcount(){
 
 def refresh() {
     logTrace('refresh()')
-    def msg = "test"    
+    def msg = "00"    
     sendCommand(msg)
 }
 
@@ -297,7 +343,7 @@ def parse(msg) {
         val = state.primeira[f]
         log.info "posição f= " + f + " valor state = " + val
         }
-        //log.info "status do update = " + state.update
+        log.info "status do update = " + state.update
 }
 
 
@@ -338,7 +384,7 @@ def connectionCheck() {
         initialize();
     }
     else {
-        logDebug("connectionCheck ok");
+        logDebug("Connection Check ok");
         runIn(checkInterval, "connectionCheck");
     }
 }
@@ -401,7 +447,7 @@ ipdomodulo  = state.ipaddress
 lengthvar =  (cd.deviceNetworkId.length())
 int relay = 0
 /// Inicio verificación del length    
-      def substr1 = (cd.deviceNetworkId.indexOf("-",4))
+      def substr1 = (cd.deviceNetworkId.indexOf("-",5))
       def result01 = lengthvar - substr1 
       if (result01 > 2  ) {
            def  substr2a = substr1 + 1
@@ -446,7 +492,7 @@ ipdomodulo  = state.ipaddress
 lengthvar =  (cd.deviceNetworkId.length())
 int relay = 0
 /// Inicio verificación del length    
-      def substr1 = (cd.deviceNetworkId.indexOf("-",4))
+      def substr1 = (cd.deviceNetworkId.indexOf("-",5))
       def result01 = lengthvar - substr1 
       if (result01 > 2  ) {
            def  substr2a = substr1 + 1
@@ -526,4 +572,3 @@ void logWarn(String msg, boolean force = false) {
 void logError(String msg) {
     log.error "${drvThis}: ${msg}"
 }
-
