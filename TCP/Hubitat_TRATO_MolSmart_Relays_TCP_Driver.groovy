@@ -12,11 +12,11 @@
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
  *        
- *        Versão 1.0 25/4/2024  - V.BETA 1
- *	  1.1 30/4/2024  - correção do indexof para verificar os digitos de Network ID. Lineas 449 e 494, precisa ver quantos digitos vai ter o network id. Agora ficou para começar
- * 	  depois do "5" digito para ver depspues del "-". 
+ *        1.0 25/4/2024  - V.BETA 1
+ *	      1.1 30/4/2024  - correção do indexof para verificar os digitos de Network ID. Lineas 449 e 494, precisa ver quantos digitos vai ter o network id. Agora ficou para começar
+ * 	      depois do "5" digito para ver depspues del "-". 
  *        1.2 05/10/2024 - Adição do Check cada 5 minutos para keepalive. Adição de botão manual para KeepAlive. 
- *
+ *        1.3 05/12/2024 - Added BoardStatus Attribute (online/offline)
  */
 metadata {
   definition (name: "MolSmart Relays Driver TCP v3 - by TRATO", namespace: "TRATO", author: "TRATO", vid: "generic-contact") {
@@ -50,13 +50,14 @@ command "keepalivemol"
     input 'logTrace', 'bool', title: 'Show Detailed Logs?', description: 'Only leave on when required', required: false, defaultValue: true
 
     attribute "powerstatus", "string"
+    attribute "boardstatus", "string"
     
       
   }   
 
 
 @Field static String partialMessage = ''
-@Field static Integer checkInterval = 600
+@Field static Integer checkInterval = 300
 
 
 def installed() {
@@ -114,9 +115,12 @@ def keepalivemol (){
         state.lastMessageReceivedAt = now();        
         runIn(checkInterval, "connectionCheck");
         refresh();  // se estava offline, preciso fazer um refresh
+        
     }
     catch (e) {
         logError( "${device_IP_address} initialize error: ${e.message}" )
+        sendEvent(name: "boardstatus", value: "offline", isStateChange: true)        
+
         //runIn(60, "initialize");
     }    
 }
@@ -268,6 +272,8 @@ def parse(msg) {
         state.channels = 32
         novaprimeira = newmsg2[0..31]     
         log.debug "Placa de 32"
+        sendEvent(name: "boardstatus", value: "online", isStateChange: true)
+        
     }    
     
     if (newmsg2.contains("16")) {
@@ -275,6 +281,8 @@ def parse(msg) {
         state.channels = 16
         novaprimeira = newmsg2[0..15]
         log.debug "Placa de 16"
+        sendEvent(name: "boardstatus", value: "online", isStateChange: true)
+        
     }   
     
     if (newmsg2.contains("8")) {
@@ -282,12 +290,15 @@ def parse(msg) {
         state.channels = 8
         novaprimeira = newmsg2[0..7]
         log.debug "Placa de 8"
+        sendEvent(name: "boardstatus", value: "online", isStateChange: true)
+
     }      
 
     if (newmsg2.contains("4")) {
         state.primeira = newmsg2[0..3]
         state.channels = 4
-        novaprimeira = newmsg2[0..3]      
+        novaprimeira = newmsg2[0..3]
+        sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
         log.debug "Placa de 4"
     }       
     
@@ -381,13 +392,18 @@ def connectionCheck() {
     
     if ( now - state.lastMessageReceivedAt > (checkInterval * 1000)) { 
         logError("sem mensagens desde ${(now - state.lastMessageReceivedAt)/60000} minutos, reconectando ...");
+        sendEvent(name: "boardstatus", value: "offline", isStateChange: true)        
         initialize();
     }
     else {
         logDebug("Connection Check ok");
+        sendEvent(name: "boardstatus", value: "online", isStateChange: true)
         runIn(checkInterval, "connectionCheck");
     }
 }
+
+
+
 
 def socketStatus(String message) {
     if (message == "receive error: String index out of range: -1") {
