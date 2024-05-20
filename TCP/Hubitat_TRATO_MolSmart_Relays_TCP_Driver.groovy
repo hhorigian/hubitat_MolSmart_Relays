@@ -1,5 +1,5 @@
 /**
- *  Hubitat - TCP MolSmart Relay Drivers by TRATO - 
+ *  Hubitat - TCP MolSmart Relay Drivers by VH - 
  *
  *  Copyright 2024 VH
  *
@@ -19,7 +19,7 @@
  *        1.3 05/12/2024 - Added BoardStatus Attribute (online/offline)
  */
 metadata {
-  definition (name: "MolSmart Relays Driver TCP v3 - by TRATO", namespace: "TRATO", author: "TRATO", vid: "generic-contact") {
+  definition (name: "MolSmart - Relay 4/8/16/32CH (TCP)", namespace: "TRATO", author: "VH", vid: "generic-contact") {
         capability "Switch"  
         capability "Configuration"
         capability "Initialize"
@@ -39,7 +39,7 @@ command "keepalivemol"
 //command "clearAllvalues"
 
   preferences {
-        input "device_IP_address", "text", title: "MolSmart IP Address", required: true, defaultValue: "192.168.10.55"   
+        input "device_IP_address", "text", title: "MolSmart IP Address", required: true, defaultValue: "192.168.7.1"   
         input "device_port", "number", title: "IP Port of Device", required: true, defaultValue: 502
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
         //input name: "powerstatus", type: "string", title: "Power Status" 
