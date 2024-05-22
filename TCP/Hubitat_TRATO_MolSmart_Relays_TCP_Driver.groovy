@@ -17,6 +17,7 @@
  * 	      depois do "5" digito para ver depspues del "-". 
  *        1.2 05/10/2024 - Adição do Check cada 5 minutos para keepalive. Adição de botão manual para KeepAlive. 
  *        1.3 05/12/2024 - Added BoardStatus Attribute (online/offline)
+ *        1.4 05/22/2024 - Fix Scenes run
  */
 metadata {
   definition (name: "MolSmart - Relay 4/8/16/32CH (TCP)", namespace: "TRATO", author: "VH", vid: "generic-contact") {
@@ -271,7 +272,7 @@ def parse(msg) {
         state.primeira = newmsg2[0..31]
         state.channels = 32
         novaprimeira = newmsg2[0..31]     
-        log.debug "Placa de 32"
+        log.debug "Placa MolSmart de 32CH"
         sendEvent(name: "boardstatus", value: "online", isStateChange: true)
         
     }    
@@ -280,7 +281,7 @@ def parse(msg) {
         state.primeira = newmsg2[0..15]
         state.channels = 16
         novaprimeira = newmsg2[0..15]
-        log.debug "Placa de 16"
+        log.debug "Placa MolSmart de 16CH"
         sendEvent(name: "boardstatus", value: "online", isStateChange: true)
         
     }   
@@ -289,7 +290,7 @@ def parse(msg) {
         state.primeira = newmsg2[0..7]
         state.channels = 8
         novaprimeira = newmsg2[0..7]
-        log.debug "Placa de 8"
+        log.debug "Placa MolSmart de 8CH"
         sendEvent(name: "boardstatus", value: "online", isStateChange: true)
 
     }      
@@ -299,22 +300,22 @@ def parse(msg) {
         state.channels = 4
         novaprimeira = newmsg2[0..3]
         sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
-        log.debug "Placa de 4"
+        log.debug "Placa MolSmart de 4CH"
     }       
     
     //compare last parse result with current, and if different, compare changes. 
     if ((novaprimeira)&&(oldprimeira)) {  //if not empty in first run
 
     if (novaprimeira.compareToIgnoreCase(oldprimeira) == 0){
-        log.info "no changes in relays"
+        log.info "No changes in relay status"
     }
     else{
-
+        
         for(int f = 0; f <state.inputcount; f++) {  
         def valprimeira = state.primeira[f]
         def valold = oldprimeira[f]
         def diferenca = valold.compareToIgnoreCase(valprimeira)
-            
+         
             switch(diferenca) { 
                case 0: 
                log.info "no changes in ch#" + (f+1) ;
@@ -352,9 +353,9 @@ def parse(msg) {
 
         for(int f = 0; f <state.inputcount; f++) {  
         val = state.primeira[f]
-        log.info "posição f= " + f + " valor state = " + val
-        }
-        log.info "status do update = " + state.update
+        log.info "posição relay = " + f + ",  status = " + val  + "  (1=on / 2=off)"
+        } 
+        //log.info "Status do update = " + state.update
 }
 
 
@@ -436,7 +437,7 @@ def componentOn(cd){
 	if (logEnable) log.info "received on request from ${cd.displayName}"
     getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])       
     on(cd)  
-
+    pauseExecution(250)
     
 }
 
@@ -444,6 +445,7 @@ void componentOff(cd){
 	if (logEnable) log.info "received off request from ${cd.displayName}"
     getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])    
 	off(cd)
+    pauseExecution(250)
 
 
 }
@@ -454,7 +456,7 @@ void componentOff(cd){
 
 //SEND ON COMMAND IN CHILD BUTTON
 void on(cd) {
-if (logEnable) log.debug "Turn device ON "	
+//if (logEnable) log.debug "Turn device ON "	 + cd.deviceNetworkId	
 sendEvent(name: "switch", value: "on", isStateChange: true)
 cd.updateDataValue("Power","On")    
 //cd.parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])
@@ -481,16 +483,14 @@ int relay = 0
            }
 
     def valor = ""
-    log.info numervalue1
     valor =   numervalue1 as Integer
-    log.info  valor
     relay = valor   
 
  ////
      def stringrelay = relay
      def comando = "1" + stringrelay
      interfaces.rawSocket.sendMessage(comando)
-     log.info "Foi Ligado o Relay " + relay + " via TCP " + comando 
+     //log.info "Foi Ligado o Relay " + relay + " via TCP " + comando 
      sendEvent(name: "power", value: "on")
      state.update = 1  //variable to control update with board on parse
     
@@ -499,7 +499,7 @@ int relay = 0
 
 //SEND OFF COMMAND IN CHILD BUTTON 
 void off(cd) {
-if (logEnable) log.debug "Turn device OFF"	
+//if (logEnable) log.debug "Turn device OFF "	 + cd.deviceNetworkId
 sendEvent(name: "switch", value: "off", isStateChange: true)
 cd.updateDataValue("Power","Off")
 //cd.parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])
@@ -530,7 +530,7 @@ int relay = 0
      def stringrelay = relay
      def comando = "2" + stringrelay
      interfaces.rawSocket.sendMessage(comando)
-     log.info "Foi Desligado o Relay " + relay + " via TCP " + comando 
+     //log.info "Foi Desligado o Relay " + relay + " via TCP " + comando 
      state.update = 1    //variable to control update with board on parse
     
 }
