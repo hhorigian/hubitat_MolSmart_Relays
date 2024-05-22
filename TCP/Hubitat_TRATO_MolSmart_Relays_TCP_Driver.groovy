@@ -17,7 +17,7 @@
  * 	      depois do "5" digito para ver depspues del "-". 
  *        1.2 05/10/2024 - Adição do Check cada 5 minutos para keepalive. Adição de botão manual para KeepAlive. 
  *        1.3 05/12/2024 - Added BoardStatus Attribute (online/offline)
- *        1.4 05/22/2024 - Fix Scenes run
+ *        1.4 05/22/2024 - Fix Scenes by adding "pauseExecution(250)" for On and Off in Childs 
  */
 metadata {
   definition (name: "MolSmart - Relay 4/8/16/32CH (TCP)", namespace: "TRATO", author: "VH", vid: "generic-contact") {
