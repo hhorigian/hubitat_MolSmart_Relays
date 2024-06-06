@@ -18,8 +18,8 @@
  *        1.2 05/10/2024 - Adição do Check cada 5 minutos para keepalive. Adição de botão manual para KeepAlive. 
  *        1.3 05/12/2024 - Added BoardStatus Attribute (online/offline)
  *        1.4 05/22/2024 - Fix Scenes by adding "pauseExecution(250)" for On and Off in Childs 
- *        1.5 05/24/2024 - Fix ChID on CommandON /CommandOff childs, for long Ch id's with 2x "-" 
- *
+ *        1.5 06/05/2024 - Added Help Guide Link
+
  */
 metadata {
   definition (name: "MolSmart - Relay 4/8/16/32CH (TCP)", namespace: "TRATO", author: "VH", vid: "generic-contact") {
@@ -41,12 +41,23 @@ command "connectionCheck"
 command "keepalivemol"
 //command "clearAllvalues"
 
+    import groovy.transform.Field
+    @Field static final String DRIVER = "by TRATO"
+    @Field static final String USER_GUIDE = "https://github.com/hhorigian/hubitat_MolSmart_Relays/edit/main/TCP/README.md"
+
+
+    String fmtHelpInfo(String str) {
+    String prefLink = "<a href='${USER_GUIDE}' target='_blank'>${str}<br><div style='font-size: 70%;'>${DRIVER}</div></a>"
+    return "<div style='font-size: 160%; font-style: bold; padding: 2px 0px; text-align: center;'>${prefLink}</div>"
+    }
+
   preferences {
         input "device_IP_address", "text", title: "MolSmart IP Address", required: true, defaultValue: "192.168.7.1"   
         input "device_port", "number", title: "IP Port of Device", required: true, defaultValue: 502
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
         //input name: "powerstatus", type: "string", title: "Power Status" 
-
+        //help guide
+        input name: "UserGuide", type: "hidden", title: fmtHelpInfo("Manual do Driver") 
     input 'logInfo', 'bool', title: 'Show Info Logs?',  required: false, defaultValue: true
     input 'logWarn', 'bool', title: 'Show Warning Logs?', required: false, defaultValue: true
     input 'logDebug', 'bool', title: 'Show Debug Logs?', description: 'Only leave on when required', required: false, defaultValue: true
@@ -467,7 +478,7 @@ ipdomodulo  = state.ipaddress
 lengthvar =  (cd.deviceNetworkId.length())
 int relay = 0
 /// Inicio verificación del length    
-      substr1 = cd.deviceNetworkId.indexOf("-", cd.deviceNetworkId.indexOf("-") + 1);
+      def substr1 = (cd.deviceNetworkId.indexOf("-",5))
       def result01 = lengthvar - substr1 
       if (result01 > 2  ) {
            def  substr2a = substr1 + 1
@@ -510,7 +521,7 @@ ipdomodulo  = state.ipaddress
 lengthvar =  (cd.deviceNetworkId.length())
 int relay = 0
 /// Inicio verificación del length    
-      substr1 = cd.deviceNetworkId.indexOf("-", cd.deviceNetworkId.indexOf("-") + 1);
+      def substr1 = (cd.deviceNetworkId.indexOf("-",5))
       def result01 = lengthvar - substr1 
       if (result01 > 2  ) {
            def  substr2a = substr1 + 1
