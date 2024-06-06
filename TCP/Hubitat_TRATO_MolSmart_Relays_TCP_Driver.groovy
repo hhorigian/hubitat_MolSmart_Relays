@@ -52,7 +52,7 @@ command "keepalivemol"
     }
 
   preferences {
-        input "device_IP_address", "text", title: "MolSmart IP Address", required: true, defaultValue: "192.168.7.1"   
+        input "device_IP_address", "text", title: "MolSmart IP Address", required: true 
         input "device_port", "number", title: "IP Port of Device", required: true, defaultValue: 502
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
         //input name: "powerstatus", type: "string", title: "Power Status" 
