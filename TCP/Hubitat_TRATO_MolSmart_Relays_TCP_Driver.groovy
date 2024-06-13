@@ -56,12 +56,12 @@ command "keepalivemol"
         input "device_port", "number", title: "IP Port of Device", required: true, defaultValue: 502
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
         //input name: "powerstatus", type: "string", title: "Power Status" 
-        //help guide
-        input name: "UserGuide", type: "hidden", title: fmtHelpInfo("Manual do Driver") 
     input 'logInfo', 'bool', title: 'Show Info Logs?',  required: false, defaultValue: true
     input 'logWarn', 'bool', title: 'Show Warning Logs?', required: false, defaultValue: true
     input 'logDebug', 'bool', title: 'Show Debug Logs?', description: 'Only leave on when required', required: false, defaultValue: true
     input 'logTrace', 'bool', title: 'Show Detailed Logs?', description: 'Only leave on when required', required: false, defaultValue: true
+        //help guide
+        input name: "UserGuide", type: "hidden", title: fmtHelpInfo("Manual do Driver") 
 
     attribute "powerstatus", "string"
     attribute "boardstatus", "string"
