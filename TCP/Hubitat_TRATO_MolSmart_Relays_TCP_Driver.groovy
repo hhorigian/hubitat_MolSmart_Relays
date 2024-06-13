@@ -19,6 +19,7 @@
  *        1.3 05/12/2024 - Added BoardStatus Attribute (online/offline)
  *        1.4 05/22/2024 - Fix Scenes by adding "pauseExecution(250)" for On and Off in Childs 
  *        1.5 06/05/2024 - Added Help Guide Link
+ *        1.6 13/06/2024 - Added Help Guide Link  v2
 
  */
 metadata {
@@ -43,7 +44,7 @@ command "keepalivemol"
 
     import groovy.transform.Field
     @Field static final String DRIVER = "by TRATO"
-    @Field static final String USER_GUIDE = "https://github.com/hhorigian/hubitat_MolSmart_Relays/edit/main/TCP/README.md"
+    @Field static final String USER_GUIDE = "https://github.com/hhorigian/hubitat_MolSmart_Relays"
 
 
     String fmtHelpInfo(String str) {
@@ -60,8 +61,8 @@ command "keepalivemol"
     input 'logWarn', 'bool', title: 'Show Warning Logs?', required: false, defaultValue: true
     input 'logDebug', 'bool', title: 'Show Debug Logs?', description: 'Only leave on when required', required: false, defaultValue: true
     input 'logTrace', 'bool', title: 'Show Detailed Logs?', description: 'Only leave on when required', required: false, defaultValue: true
-        //help guide
-        input name: "UserGuide", type: "hidden", title: fmtHelpInfo("Manual do Driver") 
+    //help guide
+    input name: "UserGuide", type: "hidden", title: fmtHelpInfo("Manual do Driver") 
 
     attribute "powerstatus", "string"
     attribute "boardstatus", "string"
