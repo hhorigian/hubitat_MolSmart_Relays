@@ -1,5 +1,5 @@
 /**
- *  Hubitat - TCP MolSmart Dimmer Drivers by TRATO - BETA OK
+ *  Hubitat - TCP MolSmart Relay Drivers by VH - 
  *
  *  Copyright 2024 VH
  *
@@ -12,18 +12,22 @@
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
  *        
- *        Versão 1.0 25/4/2024  - V.BETA 1
- *       Versão 1.1 13/6/2024  - Added User Guide
- *       Versão 1.2 18/6/2024 - Fixed index and length calc of network id. 
+ *        1.0 25/4/2024  - V.BETA 1
+ *	      1.1 30/4/2024  - correção do indexof para verificar os digitos de Network ID. Lineas 449 e 494, precisa ver quantos digitos vai ter o network id. Agora ficou para começar
+ * 	      depois do "5" digito para ver depspues del "-". 
+ *        1.2 05/10/2024 - Adição do Check cada 5 minutos para keepalive. Adição de botão manual para KeepAlive. 
+ *        1.3 05/12/2024 - Added BoardStatus Attribute (online/offline)
+ *        1.4 05/22/2024 - Fix Scenes by adding "pauseExecution(250)" for On and Off in Childs 
+ *        1.5 06/05/2024 - Added Help Guide Link
+ *        1.6 13/06/2024 - Added Help Guide Link  v2
+
  */
 metadata {
-  definition (name: "MolSmart DIMMER Driver TCP v3 - by TRATO", namespace: "TRATO", author: "TRATO", vid: "generic-contact") {
+  definition (name: "MolSmart - Relay 4/8/16/32CH (TCP)", namespace: "TRATO", author: "VH", vid: "generic-contact") {
         capability "Switch"  
         capability "Configuration"
         capability "Initialize"
         capability "Refresh"
-		capability "SwitchLevel"
-		capability "ChangeLevel"      
      
       
   }
@@ -34,10 +38,13 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 command "buscainputcount"
 command "createchilds"
+command "connectionCheck"
+command "keepalivemol"
+//command "clearAllvalues"
 
     import groovy.transform.Field
     @Field static final String DRIVER = "by TRATO"
-    @Field static final String USER_GUIDE = "https://github.com/hhorigian/hubitat_MolSmart_Dimmer"
+    @Field static final String USER_GUIDE = "https://github.com/hhorigian/hubitat_MolSmart_Relays"
 
 
     String fmtHelpInfo(String str) {
@@ -45,30 +52,27 @@ command "createchilds"
     return "<div style='font-size: 160%; font-style: bold; padding: 2px 0px; text-align: center;'>${prefLink}</div>"
     }
 
-
   preferences {
-        input "device_IP_address", "text", title: "IP Address of MolSmart Dimmer"
+        input "device_IP_address", "text", title: "MolSmart IP Address", required: true 
         input "device_port", "number", title: "IP Port of Device", required: true, defaultValue: 502
-        input name: "outputs", type: "string", title: "How many Relays " , defaultValue: 6      
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
-        input name: "powerstatus", type: "string", title: "Power Status" 
-
+        //input name: "powerstatus", type: "string", title: "Power Status" 
     input 'logInfo', 'bool', title: 'Show Info Logs?',  required: false, defaultValue: true
     input 'logWarn', 'bool', title: 'Show Warning Logs?', required: false, defaultValue: true
     input 'logDebug', 'bool', title: 'Show Debug Logs?', description: 'Only leave on when required', required: false, defaultValue: true
     input 'logTrace', 'bool', title: 'Show Detailed Logs?', description: 'Only leave on when required', required: false, defaultValue: true
-
-        //help guide
-        input name: "UserGuide", type: "hidden", title: fmtHelpInfo("Manual do Driver") 	  
+    //help guide
+    input name: "UserGuide", type: "hidden", title: fmtHelpInfo("Manual do Driver") 
 
     attribute "powerstatus", "string"
+    attribute "boardstatus", "string"
     
       
   }   
 
 
 @Field static String partialMessage = ''
-@Field static Integer checkInterval = 600
+@Field static Integer checkInterval = 300
 
 
 def installed() {
@@ -95,8 +99,46 @@ def updated() {
 def configure() {
     logTrace('configure()')
     unschedule()
+
 }
 
+def clearAllvalues() {
+    logTrace('clearAllvalues()')
+    unschedule()
+    state.clear()
+    interfaces.rawSocket.close();
+
+}
+
+def keepalivemol (){
+
+   logTrace('keepalivemol()')
+    unschedule()
+    interfaces.rawSocket.close();
+    state.clear()
+    def novaprimeira = ""
+    def oldprimeira = ""
+    partialMessage = '';
+
+    //Llama la busca de count de inputs+outputs
+    buscainputcount()
+    
+    try {
+        logTrace("tentando conexão com o device no ${device_IP_address}...na porta ${device_port}");
+        int i = 502
+        interfaces.rawSocket.connect(device_IP_address, (int) device_port);
+        state.lastMessageReceivedAt = now();        
+        runIn(checkInterval, "connectionCheck");
+        refresh();  // se estava offline, preciso fazer um refresh
+        
+    }
+    catch (e) {
+        logError( "${device_IP_address} initialize error: ${e.message}" )
+        sendEvent(name: "boardstatus", value: "offline", isStateChange: true)        
+
+        //runIn(60, "initialize");
+    }    
+}
 
 
 def initialize() {
@@ -124,7 +166,7 @@ def initialize() {
         logTrace("tentando conexão com o device no ${device_IP_address}...na porta ${device_port}");
         int i = 502
         interfaces.rawSocket.connect(device_IP_address, (int) device_port);
-        state.lastMessageReceivedAt = now();
+        state.lastMessageReceivedAt = now();        
         runIn(checkInterval, "connectionCheck");
         refresh();  // se estava offline, preciso fazer um refresh
     }
@@ -132,21 +174,27 @@ def initialize() {
         logError( "${device_IP_address} initialize error: ${e.message}" )
         runIn(60, "initialize");
     }
-    createchilds()
-       
+    
+    try{
+         logTrace("criando childs")
+          createchilds()       
+    }
+    catch (e) {
+        logError( "initialize error: ${e.message}" )
+    }    
 }
 
 
 def createchilds() {
 
     String thisId = device.id
-	log.info "info thisid " + thisId
+	//log.info "info thisid " + thisId
 	def cd = getChildDevice("${thisId}-Switch")
     state.netids = "${thisId}-Switch-"
 	if (!cd) {
         log.info "inputcount = " + state.inputcount 
         for(int i = 1; i<=state.inputcount; i++) {        
-        cd = addChildDevice("hubitat", "Generic Component Dimmer", "${thisId}-Switch-" + Integer.toString(i), [name: "${device.displayName} Switch-" + Integer.toString(i) , isComponent: true])
+        cd = addChildDevice("hubitat", "Generic Component Switch", "${thisId}-Switch-" + Integer.toString(i), [name: "${device.displayName} Switch-" + Integer.toString(i) , isComponent: true])
         log.info "added switch # " + i + " from " + state.inputcount            
         
     }
@@ -154,19 +202,49 @@ def createchilds() {
 }
 
 def buscainputcount(){
-
+    try {
+        httpGet("http://" + settings.device_IP_address + "/relay_cgi_load.cgi") { resp ->
+            if (resp.success) {
+                logDebug "Busquei o numero de relays(): " + resp.data
+                //logDebug "initialize(): Response[3] = " + (resp.data as String)[3]
+                 
+                //Verifica a quantidade de Relays que tem a placa, usando o primeiro digito do 3 caracter do response. (2 ou 4 ou 8 ou 1 ou 3)
+                inputCountV = (resp.data as String)[3] as int
+                    
+                if (inputCountV == 4) {
+                    inputCount = 4
+                }
+                if (inputCountV == 8) {
+                    inputCount = 8
+                }    
+                if (inputCountV == 1) {
+                    inputCount = 16
+                }
+                if (inputCountV == 3) {
+                    inputCount = 32
+                }
                                
-            state.inputcount = 6  // deixar o numero de relays na memoria
-            def ipmolsmart = settings.device_IP_address
-           state.ipaddress = settings.device_IP_address
-    
+            state.inputcount = inputCount  // deixar o numero de relays na memoria
+       
+            }
+            else {
+                if (resp.data) logDebug "initialize(): Falha para obter o # de relays ${resp.data}"
+            }
+  
+        }
+    } catch (Exception e) {
+        log.warn "initialize(): Call failed: ${e.message}"
+       
+    }
+         def ipmolsmart = settings.device_IP_address
+         state.ipaddress = settings.device_IP_address
 }
 
 
 
 def refresh() {
     logTrace('refresh()')
-    def msg = "test"    
+    def msg = "00"    
     sendCommand(msg)
 }
 
@@ -200,297 +278,98 @@ def parse(msg) {
     def newmsg2 = new String(newmsg) // Array para String
     
     state.lastmessage = newmsg2
-       
-    if (newmsg2.contains("6")) {
-        state.primeira = newmsg2[0..17]
-        state.channels = 6
-        novaprimeira = newmsg2[0..17]
-        log.debug "Placa Dimmer de 6"
+    
+
+    //(Doing a search with  "Contain" to see the board model, and qty of relays inside of the model MolSmart 4/8/16/32 relays). 
+
+    if (newmsg2.contains("32")) {
+        state.primeira = newmsg2[0..31]
+        state.channels = 32
+        novaprimeira = newmsg2[0..31]     
+        log.debug "Placa MolSmart de 32CH"
+        sendEvent(name: "boardstatus", value: "online", isStateChange: true)
+        
+    }    
+    
+    if (newmsg2.contains("16")) {
+        state.primeira = newmsg2[0..15]
+        state.channels = 16
+        novaprimeira = newmsg2[0..15]
+        log.debug "Placa MolSmart de 16CH"
+        sendEvent(name: "boardstatus", value: "online", isStateChange: true)
+        
+    }   
+    
+    if (newmsg2.contains("8")) {
+        state.primeira = newmsg2[0..7]
+        state.channels = 8
+        novaprimeira = newmsg2[0..7]
+        log.debug "Placa MolSmart de 8CH"
+        sendEvent(name: "boardstatus", value: "online", isStateChange: true)
+
     }      
 
-     primeira =  newmsg2[0..17] //el valor de los primeros 17 
-     dim1 = newmsg2[0..2]
-     dim2 = newmsg2[3..5]
-     dim3 = newmsg2[6..8]
-     dim4 = newmsg2[9..11]
-     dim5 = newmsg2[12..14]
-     dim6 = newmsg2[15..17]    
+    if (newmsg2.contains("4")) {
+        state.primeira = newmsg2[0..3]
+        state.channels = 4
+        novaprimeira = newmsg2[0..3]
+        sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
+        log.debug "Placa MolSmart de 4CH"
+    }       
     
     //compare last parse result with current, and if different, compare changes. 
     if ((novaprimeira)&&(oldprimeira)) {  //if not empty in first run
 
     if (novaprimeira.compareToIgnoreCase(oldprimeira) == 0){
-        log.info "no changes from previous status"
+        log.info "No changes in relay status"
     }
     else{
         
-        if ( state.update == 0) {
-
-            //compara dimmer1 
-            def valold_dim01 = oldprimeira[0..2]
-            def dif1 = valold_dim01.compareToIgnoreCase(dim1)  
-                switch(difdim1) { 
-                case 0:
-                    log.info "no changes in Dimmer#" + (f+1) ;
-                    break                     
-                default:
-                        def difprimerdigito = valold_dim01[0].compareToIgnoreCase(dim1[0])
-                        if (difprimerdigito == -1) {
-                            log.info "primer dig dif -1"
-                        }
-                        if (difprimerdigito ==  1) {
-                            log.info "primer dig dif -1"
-                        }
-                        if (difprimerdigito ==  0) {
-                            log.info "primer dig 1CH = 0"
-                            def difoutros = valold_dim01[1..2].compareToIgnoreCase(dim1[1..2])
-                                if (difoutros !=  0) {
-                                    //log.info "2 y 3 digitos changed too"
-                                    log.info "new setvalue 1CH = " + dim1 + " --- antigo era " + valold_dim01                                    
-                                    chdid = state.netids + "1"                                     
-                                    def cd = getChildDevice(chdid)
-                                    valdim = dim1[1..2]           
-                                    valordim = valdim as Integer  
-                                    
-                                    if (valordim > 0) {
-		                            getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on via ParseSetLevel > 0", isStateChange: true]])    
-	                                } else {
-	                            	getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off via ParseSetLevel < 0", isStateChange: true]])    
-	                                } 
-                                    getChildDevice(cd.deviceNetworkId).parse([[name:"level", value: valdim, descriptionText:"${cd.displayName} was dimmered via Parse"]])    
-                                    //log.info "chdid = " + chdid
-                                    //log.info "cd = " + cd
-                                    //log.info "valdim = " + valdim
-                                } 
-                        }                    
-                break
+        for(int f = 0; f <state.inputcount; f++) {  
+        def valprimeira = state.primeira[f]
+        def valold = oldprimeira[f]
+        def diferenca = valold.compareToIgnoreCase(valprimeira)
+         
+            switch(diferenca) { 
+               case 0: 
+               log.info "no changes in ch#" + (f+1) ;
+               break                     
+               case -1:  //  -1 is when light was turned ON                   
+                if (state.update == 1){     //no hace nada porque fue el switch
+                log.info "(NOTHING) - ON changes in ch#" + (f+1) ;
+                    
                 }
-        
-        //compara dimmer2
-            def valold_dim02 = oldprimeira[3..5]
-            def dif2 = valold_dim02.compareToIgnoreCase(dim2)  
-                switch(difdim2) { 
-                case 0:
-                    log.info "no changes in Dimmer#" + 2 ;
-                    break                     
+                else {
+                   log.info "ON changes in ch#" + (f+1) ; 
+                    chdid = state.netids + (f+1) 
+                    def cd = getChildDevice(chdid)
+                    getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])
+                    //buscar y cambiar el status a ON del switch
+                    
+                }
+               break                     
+               case 1: // 1 is when light was turned OFF
+                    log.info "OFF changes in ch#" + (f+1) ;
+                    chdid = state.netids + (f+1) 
+                    def cd = getChildDevice(chdid) 
+                    getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])                   
+                    //buscar y cambiar el status a OFF del switch
+    
+                break                     
+
                 default:
-                        def difprimerdigito = valold_dim02[0].compareToIgnoreCase(dim2[0])
-                        if (difprimerdigito == -1) {
-                            log.info "primer dig dif -1"
-                        }
-                        if (difprimerdigito ==  1) {
-                            log.info "primer dig dif -1"
-                        }
-                        if (difprimerdigito ==  0) {
-                            log.info "primer dig 2CH = 0"
-                            def difoutros = valold_dim02[1..2].compareToIgnoreCase(dim2[1..2])
-                                if (difoutros !=  0) {
-                                    //log.info "2 y 3 digitos changed too"
-                                    log.info "new setvalue 2CH = " + dim2 + " --- antigo era " + valold_dim02                                    
-                                    chdid = state.netids + "2"                                     
-                                    def cd = getChildDevice(chdid)
-                                    valdim = dim2[1..2]  
-                                    
-                                    if (!valdim?.trim()) {
-                                            logger.lifecycle("the string is null or empty.")
-                                    }
-                                    
-                                    valordim = valdim as Integer  
-                                    
-                                    if (valordim > 0) {
-		                            getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on via ParseSetLevel > 0", isStateChange: true]])    
-	                                } else {
-	                            	getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off via ParseSetLevel < 0", isStateChange: true]])    
-	                                } 
-                                    getChildDevice(cd.deviceNetworkId).parse([[name:"level", value: valdim, descriptionText:"${cd.displayName} was dimmered via Parse"]])    
-
-                                } 
-                        }                    
-              break
-              }
-            
-            
-        //compara dimmer3
-            def valold_dim03 = oldprimeira[6..8]
-            def dif3 = valold_dim03.compareToIgnoreCase(dim3)  
-                switch(difdim3) { 
-                case 0:
-                    log.info "no changes in Dimmer#" + 3 ;
-                    break                     
-                default:
-                        def difprimerdigito = valold_dim03[0].compareToIgnoreCase(dim3[0])
-                        if (difprimerdigito == -1) {
-                            log.info "primer dig dif -1"
-                        }
-                        if (difprimerdigito ==  1) {
-                            log.info "primer dig dif -1"
-                        }
-                        if (difprimerdigito ==  0) {
-                            log.info "primer dig 3CH = 0"
-                            def difoutros = valold_dim03[1..2].compareToIgnoreCase(dim3[1..2])
-                                if (difoutros !=  0) {
-                                    log.info "new setvalue 3CH = " + dim3 + " --- antigo era " + valold_dim03                                    
-                                    chdid = state.netids + "3"                                     
-                                    def cd = getChildDevice(chdid)
-                                    valdim = dim3[1..2]  
-
-                                    valordim = valdim as Integer  
-                                    
-                                    if (valordim > 0) {
-		                            getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on via ParseSetLevel > 0", isStateChange: true]])    
-	                                } else {
-	                            	getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off via ParseSetLevel < 0", isStateChange: true]])    
-	                                } 
-                                    getChildDevice(cd.deviceNetworkId).parse([[name:"level", value: valdim, descriptionText:"${cd.displayName} was dimmered via Parse"]])    
-
-                                } 
-                        }                    
-              break
-              }
-                    
-        //compara dimmer4
-            def valold_dim04 = oldprimeira[9..11]
-            def dif4 = valold_dim04.compareToIgnoreCase(dim4)  
-                switch(difdim4) { 
-                case 0:
-                    log.info "no changes in Dimmer#" + 4 ;
-                    break                     
-                default:
-                        def difprimerdigito = valold_dim04[0].compareToIgnoreCase(dim4[0])
-                        if (difprimerdigito == -1) {
-                            log.info "primer dig dif -1"
-                        }
-                        if (difprimerdigito ==  1) {
-                            log.info "primer dig dif -1"
-                        }
-                        if (difprimerdigito ==  0) {
-                            log.info "primer dig 4CH = 0"
-                            def difoutros = valold_dim03[1..2].compareToIgnoreCase(dim4[1..2])
-                                if (difoutros !=  0) {
-                                    log.info "new setvalue 4CH = " + dim4 + " --- antigo era " + valold_dim04                                    
-                                    chdid = state.netids + "4"                                     
-                                    def cd = getChildDevice(chdid)
-                                    valdim = dim4[1..2]  
-
-                                    valordim = valdim as Integer  
-                                    
-                                    if (valordim > 0) {
-		                            getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on via ParseSetLevel > 0", isStateChange: true]])    
-	                                } else {
-	                            	getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off via ParseSetLevel < 0", isStateChange: true]])    
-	                                } 
-                                    getChildDevice(cd.deviceNetworkId).parse([[name:"level", value: valdim, descriptionText:"${cd.displayName} was dimmered via Parse"]])    
-
-                                } 
-                        }                    
-              break
-              }
-                    
-
-        //compara dimmer5
-            def valold_dim05 = oldprimeira[12..14]
-            //var.log "oldprimeira 13-15 = " + oldprimeira[13..15]
-            def dif5 = valold_dim05.compareToIgnoreCase(dim5)  
-                switch(difdim5) { 
-                case 0:
-                    log.info "no changes in Dimmer#" + 5 ;
-                    break                     
-                default:
-                        def difprimerdigito = valold_dim05[0].compareToIgnoreCase(dim5[0])
-                        if (difprimerdigito == -1) {
-                            log.info "primer dig dif -1"
-                        }
-                        if (difprimerdigito ==  1) {
-                            log.info "primer dig dif -1"
-                        }
-                        if (difprimerdigito ==  0) {
-                            log.info "primer dig 5CH = 0"
-                            def difoutros = valold_dim05[1..2].compareToIgnoreCase(dim5[1..2])
-                                if (difoutros !=  0) {
-                                    log.info "new setvalue 5CH = " + dim5 + " --- antigo era " + valold_dim05                                    
-                                    chdid = state.netids + "5"                                     
-                                    def cd = getChildDevice(chdid)
-                                    valdim = dim5[1..2]  
-
-                                    valordim = valdim as Integer  
-                                    
-                                    if (valordim > 0) {
-		                            getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on via ParseSetLevel > 0", isStateChange: true]])    
-	                                } else {
-	                            	getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off via ParseSetLevel < 0", isStateChange: true]])    
-	                                } 
-                                    getChildDevice(cd.deviceNetworkId).parse([[name:"level", value: valdim, descriptionText:"${cd.displayName} was dimmered via Parse"]])    
-
-                                } 
-                        }                    
-              break
-              }
-                    
-            
-        //compara dimmer6
-            def valold_dim06 = oldprimeira[15..17]
-            def dif6 = valold_dim06.compareToIgnoreCase(dim6)  
-                switch(difdim6) { 
-                case 0:
-                    log.info "no changes in Dimmer#" + 6 ;
-                    break                     
-                default:
-                        def difprimerdigito = valold_dim06[0].compareToIgnoreCase(dim6[0])
-                        if (difprimerdigito == -1) {
-                            log.info "primer dig dif -1"
-                        }
-                        if (difprimerdigito ==  1) {
-                            log.info "primer dig dif -1"
-                        }
-                        if (difprimerdigito ==  0) {
-                            log.info "primer dig 6CH = 0"
-                            def difoutros = valold_dim06[1..2].compareToIgnoreCase(dim6[1..2])
-                                if (difoutros !=  0) {
-                                    log.info "new setvalue 6CH = " + dim6 + " --- antigo era " + valold_dim06                                    
-                                    chdid = state.netids + "6"                                     
-                                    def cd = getChildDevice(chdid)
-                                    valdim = dim6[1..2]  
-
-                                    valordim = valdim as Integer  
-                                    
-                                    if (valordim > 0) {
-		                            getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on via ParseSetLevel > 0", isStateChange: true]])    
-	                                } else {
-	                            	getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off via ParseSetLevel < 0", isStateChange: true]])    
-	                                } 
-                                    getChildDevice(cd.deviceNetworkId).parse([[name:"level", value: valdim, descriptionText:"${cd.displayName} was dimmered via Parse"]])    
-
-                                } 
-                        }                    
-              break
-              }
-                    
-            
-            
-                    
-                    
-            
-            
-        
-            
-            
-            
-            
-            
-        }          
-                    
-                
-      
+                log.info "changes in ch#" + (f+1) + " with dif " + diferenca;
+                break
+            }
+        }        
         state.update = 0  
     }}
 
         for(int f = 0; f <state.inputcount; f++) {  
         val = state.primeira[f]
-        //log.info "posição f= " + f + " valor state = " + val
-        }
-        log.info "newmsg2  = " + newmsg2
-        log.info "primeira  = " + primeira
-        
+        log.info "posição relay = " + f + ",  status = " + val  + "  (1=on / 2=off)"
+        } 
+        //log.info "Status do update = " + state.update
 }
 
 
@@ -519,8 +398,6 @@ private sendCommand(s) {
 }
 
 
-
-
 ////////////////////////////
 //// Connections Checks ////
 ////////////////////////////
@@ -530,13 +407,18 @@ def connectionCheck() {
     
     if ( now - state.lastMessageReceivedAt > (checkInterval * 1000)) { 
         logError("sem mensagens desde ${(now - state.lastMessageReceivedAt)/60000} minutos, reconectando ...");
+        sendEvent(name: "boardstatus", value: "offline", isStateChange: true)        
         initialize();
     }
     else {
-        logDebug("connectionCheck ok");
+        logDebug("Connection Check ok");
+        sendEvent(name: "boardstatus", value: "online", isStateChange: true)
         runIn(checkInterval, "connectionCheck");
     }
 }
+
+
+
 
 def socketStatus(String message) {
     if (message == "receive error: String index out of range: -1") {
@@ -567,47 +449,36 @@ void componentRefresh(cd){
 
 def componentOn(cd){
 	if (logEnable) log.info "received on request from ${cd.displayName}"
-    getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on via ComponentOn "]])       
+    getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])       
     on(cd)  
-
+    pauseExecution(250)
     
 }
 
 void componentOff(cd){
 	if (logEnable) log.info "received off request from ${cd.displayName}"
-    getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off via ComponentOFF "]])    
+    getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])    
 	off(cd)
+    pauseExecution(250)
 
 
 }
-
-void componentSetLevel(cd,level) {
-    if (logEnable) log.info "received set level dimmer from ${cd.displayName}"
-    def valueaux = level as Integer
-	def level2 = Math.max(Math.min(valueaux, 99), 0)
-	if (level2 > 0) {
-		getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on via ComponentSetLevel > 0", isStateChange: true]])    
-	} else {
-		getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off via ComponentSetLevel < 0", isStateChange: true]])    
-	}
-    SetLevel(cd,level)   
-}
-
-
 
 
 ////// Driver Commands /////////
 
-void SetLevel(cd,level) {
 
-    def valueaux = level as Integer
-	def level2 = Math.max(Math.min(valueaux, 99), 0)	
-    
-	ipdomodulo  = state.ipaddress
-    lengthvar =  (cd.deviceNetworkId.length())
-    int relay = 0
-    
-// Start verify of length 
+//SEND ON COMMAND IN CHILD BUTTON
+void on(cd) {
+//if (logEnable) log.debug "Turn device ON "	 + cd.deviceNetworkId	
+sendEvent(name: "switch", value: "on", isStateChange: true)
+cd.updateDataValue("Power","On")    
+//cd.parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])
+
+ipdomodulo  = state.ipaddress
+lengthvar =  (cd.deviceNetworkId.length())
+int relay = 0
+/// Inicio verificación del length    
       def substr1 = (cd.deviceNetworkId.indexOf("-",5))
       def result01 = lengthvar - substr1 
       if (result01 > 2  ) {
@@ -628,56 +499,12 @@ void SetLevel(cd,level) {
     def valor = ""
     valor =   numervalue1 as Integer
     relay = valor   
-    
-    ////
-    
-     def stringrelay = relay
-     def comando = "1" + stringrelay + "%" + level2
-     interfaces.rawSocket.sendMessage(comando)
-     log.info "Foi Alterado o Dimmer " + relay + " via TCP " + comando 
-     state.update = 1  //variable to control update with board on parse  
-    
 
-
-}//of function
-
-
-
-//SEND ON COMMAND IN CHILD BUTTON
-void on(cd) {
-if (logEnable) log.debug "Turn device ON "	
-sendEvent(name: "switch", value: "on", isStateChange: true)
-//cd.updateDataValue("Power","On")    
-//cd.parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])
-
-ipdomodulo  = state.ipaddress
-lengthvar =  (cd.deviceNetworkId.length())
-int relay = 0
-
-// Start verify of length     
-      def substr1 = (cd.deviceNetworkId.indexOf("-",5))
-      def result01 = lengthvar - substr1 
-      if (result01 > 2  ) {
-           def  substr2a = substr1 + 1
-           def  substr2b = substr1 + 2
-           def substr3 = cd.deviceNetworkId[substr2a..substr2b]
-           numervalue1 = substr3
-          
-      }
-      else {
-          def substr3 = cd.deviceNetworkId[substr1+1]
-          numervalue1 = substr3
-           }
-
-    def valor = ""
-    valor =   numervalue1 as Integer
-    relay = valor   
-
-///
+ ////
      def stringrelay = relay
      def comando = "1" + stringrelay
      interfaces.rawSocket.sendMessage(comando)
-     log.info "Foi Ligado o Relay " + relay + " via TCP " + comando 
+     //log.info "Foi Ligado o Relay " + relay + " via TCP " + comando 
      sendEvent(name: "power", value: "on")
      state.update = 1  //variable to control update with board on parse
     
@@ -686,7 +513,7 @@ int relay = 0
 
 //SEND OFF COMMAND IN CHILD BUTTON 
 void off(cd) {
-if (logEnable) log.debug "Turn device OFF"	
+//if (logEnable) log.debug "Turn device OFF "	 + cd.deviceNetworkId
 sendEvent(name: "switch", value: "off", isStateChange: true)
 cd.updateDataValue("Power","Off")
 //cd.parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])
@@ -694,8 +521,7 @@ cd.updateDataValue("Power","Off")
 ipdomodulo  = state.ipaddress
 lengthvar =  (cd.deviceNetworkId.length())
 int relay = 0
-
-//Start verify length
+/// Inicio verificación del length    
       def substr1 = (cd.deviceNetworkId.indexOf("-",5))
       def result01 = lengthvar - substr1 
       if (result01 > 2  ) {
@@ -714,11 +540,11 @@ int relay = 0
     valor =   numervalue1 as Integer
     relay = valor   
 
-///
+ ////
      def stringrelay = relay
      def comando = "2" + stringrelay
      interfaces.rawSocket.sendMessage(comando)
-     log.info "Foi Desligado o Relay " + relay + " via TCP " + comando 
+     //log.info "Foi Desligado o Relay " + relay + " via TCP " + comando 
      state.update = 1    //variable to control update with board on parse
     
 }
@@ -776,4 +602,3 @@ void logWarn(String msg, boolean force = false) {
 void logError(String msg) {
     log.error "${drvThis}: ${msg}"
 }
-
