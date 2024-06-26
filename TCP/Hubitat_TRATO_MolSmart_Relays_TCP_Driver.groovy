@@ -20,6 +20,7 @@
  *        1.4 05/22/2024 - Fix Scenes by adding "pauseExecution(250)" for On and Off in Childs 
  *        1.5 06/05/2024 - Added Help Guide Link
  *        1.6 13/06/2024 - Added Help Guide Link  v2
+ *        1.7 26/06/2024 - Added "0" digit to switch name, to sort nicely the switch names. 
 
  */
 metadata {
@@ -194,7 +195,13 @@ def createchilds() {
 	if (!cd) {
         log.info "inputcount = " + state.inputcount 
         for(int i = 1; i<=state.inputcount; i++) {        
-        cd = addChildDevice("hubitat", "Generic Component Switch", "${thisId}-Switch-" + Integer.toString(i), [name: "${device.displayName} Switch-" + Integer.toString(i) , isComponent: true])
+                if (i < 10) {     //Verify to add double digits to switch name. 
+                numerorelay = "0" + Integer.toString(i)
+                }    
+                else {
+                numerorelay = Integer.toString(i)
+                }             
+        cd = addChildDevice("hubitat", "Generic Component Switch", "${thisId}-Switch-" + numerorelay, [name: "${device.displayName} Switch-" + numerorelay , isComponent: true])
         log.info "added switch # " + i + " from " + state.inputcount            
         
     }
