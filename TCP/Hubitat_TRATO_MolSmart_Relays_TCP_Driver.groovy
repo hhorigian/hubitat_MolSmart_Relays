@@ -59,9 +59,9 @@ command "keepalivemol"
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
         //input name: "powerstatus", type: "string", title: "Power Status" 
     input 'logInfo', 'bool', title: 'Show Info Logs?',  required: false, defaultValue: true
-    input 'logWarn', 'bool', title: 'Show Warning Logs?', required: false, defaultValue: true
-    input 'logDebug', 'bool', title: 'Show Debug Logs?', description: 'Only leave on when required', required: false, defaultValue: true
-    input 'logTrace', 'bool', title: 'Show Detailed Logs?', description: 'Only leave on when required', required: false, defaultValue: true
+    input 'logWarn', 'bool', title: 'Show Warning Logs?', required: false, defaultValue: false
+    input 'logDebug', 'bool', title: 'Show Debug Logs?', description: 'Only leave on when required', required: false, defaultValue: false
+    input 'logTrace', 'bool', title: 'Show Detailed Logs?', description: 'Only leave on when required', required: false, defaultValue: false
     //help guide
     input name: "UserGuide", type: "hidden", title: fmtHelpInfo("Manual do Driver") 
 
