@@ -179,10 +179,10 @@ def initialize() {
     }
     
     try{
-        if (state.childscreated == 0) {   
+         
           logTrace("criando childs")
           createchilds()       
-        }     
+        
     }
     catch (e) {
         logError( "initialize error: ${e.message}" )
