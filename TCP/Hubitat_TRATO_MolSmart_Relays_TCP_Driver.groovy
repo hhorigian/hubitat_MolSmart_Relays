@@ -21,6 +21,7 @@
  *        1.5 06/05/2024 - Added Help Guide Link
  *        1.6 13/06/2024 - Added Help Guide Link  v2
  *        1.7 26/06/2024 - Added "0" digit to switch name, to sort nicely the switch names. 
+ *        1.8 27/06/2024 - Fixed double digit error on updates after v.1.7.  
 
  */
 metadata {
@@ -80,6 +81,7 @@ def installed() {
     logTrace('installed()')
     //buscainputcount()
     updated()
+    state.childscreated = 0
     def novaprimeira = ""
     def oldprimeira = ""
     runIn(1800, logsOff)
@@ -177,8 +179,10 @@ def initialize() {
     }
     
     try{
-         logTrace("criando childs")
+        if (state.childscreated == 0) {   
+          logTrace("criando childs")
           createchilds()       
+        }     
     }
     catch (e) {
         logError( "initialize error: ${e.message}" )
@@ -187,7 +191,7 @@ def initialize() {
 
 
 def createchilds() {
-
+    state.childscreated = 1
     String thisId = device.id
 	//log.info "info thisid " + thisId
 	def cd = getChildDevice("${thisId}-Switch")
@@ -348,7 +352,16 @@ def parse(msg) {
                 }
                 else {
                    log.info "ON changes in ch#" + (f+1) ; 
-                    chdid = state.netids + (f+1) 
+
+                 z = f+1  
+                 if (z < 10) {     //Verify to add double digits to switch name. 
+                 numerorelay = "0" + Integer.toString(f+1)
+                 }    
+                 else {
+                 numerorelay = Integer.toString(f+1)
+                 }  
+			
+                    chdid = state.netids + numerorelay
                     def cd = getChildDevice(chdid)
                     getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])
                     //buscar y cambiar el status a ON del switch
@@ -357,7 +370,17 @@ def parse(msg) {
                break                     
                case 1: // 1 is when light was turned OFF
                     log.info "OFF changes in ch#" + (f+1) ;
-                    chdid = state.netids + (f+1) 
+                 
+		         z = f+1  
+                 if (z < 10) {     //Verify to add double digits to switch name. 
+                 numerorelay = "0" + Integer.toString(f+1)
+                 }    
+                 else {
+                 numerorelay = Integer.toString(f+1)
+                 }  
+		    
+		    
+		            chdid = state.netids + numerorelay
                     def cd = getChildDevice(chdid) 
                     getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])                   
                     //buscar y cambiar el status a OFF del switch
@@ -493,9 +516,7 @@ int relay = 0
            def  substr2b = substr1 + 2
            def substr3 = cd.deviceNetworkId[substr2a..substr2b]
            numervalue1 = substr3
-
-           
-          
+         
       }
       else {
           def substr3 = cd.deviceNetworkId[substr1+1]
@@ -555,8 +576,6 @@ int relay = 0
      state.update = 1    //variable to control update with board on parse
     
 }
-
-
 
 
 ////////////////////////////////////////////////
