@@ -1,10 +1,10 @@
 {
  "packageName":"MolSmart - Relay 4/8/16/32CH (TCP)",
  "author":"Vartan Horigian",
- "version":"1.7",
+ "version":"1.8",
  "minimumHEVersion":"2.3.7.100",
  "dateReleased":"2024-05-20",
- "releaseNotes":"Added the 0 digit to switch name, to sort nicely the switch names. ",
+ "releaseNotes":"Fixed double digit error on updates after v.1.7.  ",
  "drivers": [
   {
      "id":"b345c769-c877-46f5-b066-50e92d3bd051",
