@@ -44,7 +44,7 @@ command "ManualKeepAlive"
 
     import groovy.transform.Field
     @Field static final String DRIVER = "by TRATO"
-    @Field static final String USER_GUIDE = "https://github.com/hhorigian/hubitat_MolSmart_Relays"
+    @Field static final String USER_GUIDE = "https://github.com/hhorigian/hubitat_MolSmart_Relays/tree/main/TCP"
 
 
     String fmtHelpInfo(String str) {
