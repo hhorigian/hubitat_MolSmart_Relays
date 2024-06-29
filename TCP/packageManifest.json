@@ -3,7 +3,7 @@
  "author":"Vartan Horigian",
  "version":"1.9",
  "minimumHEVersion":"2.3.7.100",
- "dateReleased":"2024-05-20",
+ "dateReleased":"2024-06-29",
  "releaseNotes":"Added Functionality. Updated Online/Offline Status. Improved Logging and Check Connection alerts  ",
  "drivers": [
   {
