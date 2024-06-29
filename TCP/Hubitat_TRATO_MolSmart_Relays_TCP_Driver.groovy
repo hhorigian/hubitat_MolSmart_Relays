@@ -22,6 +22,7 @@
  *        1.6 13/06/2024 - Added Help Guide Link  v2
  *        1.7 26/06/2024 - Added "0" digit to switch name, to sort nicely the switch names. 
  *        1.8 27/06/2024 - Fixed double digit error on updates after v.1.7.  
+ *        1.9 29/06/2024 - Added Board Status  Fix for Onlin/Offline to be used in Rule Machine Notifications + Improved Initialize/Update/Install Functions + Iproved Logging + Added ManualKeepAlive Check Command.
 
  */
 metadata {
@@ -29,11 +30,8 @@ metadata {
         capability "Switch"  
         capability "Configuration"
         capability "Initialize"
-        capability "Refresh"
-     
-      
+        capability "Refresh"       
   }
-      
   }
 
 import groovy.json.JsonSlurper
@@ -41,7 +39,7 @@ import groovy.transform.Field
 command "buscainputcount"
 command "createchilds"
 command "connectionCheck"
-command "keepalivemol"
+command "ManualKeepAlive"
 //command "clearAllvalues"
 
     import groovy.transform.Field
@@ -58,97 +56,96 @@ command "keepalivemol"
         input "device_IP_address", "text", title: "MolSmart IP Address", required: true 
         input "device_port", "number", title: "IP Port of Device", required: true, defaultValue: 502
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
-        //input name: "powerstatus", type: "string", title: "Power Status" 
-    input 'logInfo', 'bool', title: 'Show Info Logs?',  required: false, defaultValue: true
-    input 'logWarn', 'bool', title: 'Show Warning Logs?', required: false, defaultValue: false
-    input 'logDebug', 'bool', title: 'Show Debug Logs?', description: 'Only leave on when required', required: false, defaultValue: false
-    input 'logTrace', 'bool', title: 'Show Detailed Logs?', description: 'Only leave on when required', required: false, defaultValue: false
+        input 'logInfo', 'bool', title: 'Show Info Logs?',  required: false, defaultValue: true
+        input 'logWarn', 'bool', title: 'Show Warning Logs?', required: false, defaultValue: false
+        input 'logDebug', 'bool', title: 'Show Debug Logs?', description: 'Only leave on when required', required: false, defaultValue: false
+        input 'logTrace', 'bool', title: 'Show Detailed Logs?', description: 'Only leave on when required', required: false, defaultValue: false
+    
     //help guide
     input name: "UserGuide", type: "hidden", title: fmtHelpInfo("Manual do Driver") 
 
     attribute "powerstatus", "string"
     attribute "boardstatus", "string"
-    
-      
+    //attribute "boardlaststatus", "string"  
+           
   }   
 
 
 @Field static String partialMessage = ''
-@Field static Integer checkInterval = 300
-
+@Field static Integer checkInterval = 150
 
 def installed() {
     logTrace('installed()')
-    //buscainputcount()
-    updated()
     state.childscreated = 0
-    def novaprimeira = ""
-    def oldprimeira = ""
+    boardstatus = "offline"
+    //def novaprimeira = ""
+    //def oldprimeira = ""
     runIn(1800, logsOff)
-}
+} //OK
 
 def uninstalled() {
     logTrace('uninstalled()')
     unschedule()
     interfaces.rawSocket.close()
-}
+} //OK
 
 def updated() {
     logTrace('updated()')
-    initialize()
+    //initialize()
     refresh()
 }
 
-def configure() {
-    logTrace('configure()')
-    unschedule()
-
-}
-
-def clearAllvalues() {
+/* def clearAllvalues() {
     logTrace('clearAllvalues()')
     unschedule()
     state.clear()
     interfaces.rawSocket.close();
+}*/ 
 
-}
 
-def keepalivemol (){
-
-   logTrace('keepalivemol()')
-    unschedule()
+def ManualKeepAlive (){
+    logTrace('ManualKeepAlive()')
     interfaces.rawSocket.close();
+    interfaces.rawSocket.close();
+    unschedule()
     state.clear()
     def novaprimeira = ""
     def oldprimeira = ""
     partialMessage = '';
+    
 
     //Llama la busca de count de inputs+outputs
     buscainputcount()
     
     try {
-        logTrace("tentando conexão com o device no ${device_IP_address}...na porta ${device_port}");
-        int i = 502
+        logTrace("ManualKeepAlive: Tentando conexão com o device no ${device_IP_address}...na porta ${device_port}");
+        //int i = 502
         interfaces.rawSocket.connect(device_IP_address, (int) device_port);
         state.lastMessageReceivedAt = now();        
         runIn(checkInterval, "connectionCheck");
+        if (boardstatus != "online") { 
+            sendEvent(name: "boardstatus", value: "online", isStateChange: true)    
+            boardstatus = "online"
+        }
         refresh();  // se estava offline, preciso fazer um refresh
         
     }
     catch (e) {
-        logError( "${device_IP_address} initialize error: ${e.message}" )
-        sendEvent(name: "boardstatus", value: "offline", isStateChange: true)        
-
+        logError( "ManualKeepAlive: ${device_IP_address}  error: ${e.message}" )
+        if (boardstatus != "offline") { 
+            boardstatus = "offline"
+            sendEvent(name: "boardstatus", value: "offline", isStateChange: true)
+        }
         //runIn(60, "initialize");
     }    
 }
 
 
 def initialize() {
-    logTrace('initialize()')
     unschedule()
+    logTrace('Run Initialize()')
     interfaces.rawSocket.close();
-    state.clear()
+    //state.clear()
     def novaprimeira = ""
     def oldprimeira = ""
     partialMessage = '';
@@ -162,42 +159,51 @@ def initialize() {
         logError 'Porta do Device não configurada.'
         return
     }
-    //Llama la busca de count de inputs+outputs
+    
+    //Llama la busca de count de inputs+outputs via HTTP
     buscainputcount()
     
     try {
-        logTrace("tentando conexão com o device no ${device_IP_address}...na porta ${device_port}");
-        int i = 502
+        logTrace("Initialize: Tentando conexão com o device no ${device_IP_address}...na porta configurada: ${device_port}");
+        //int i = 502
         interfaces.rawSocket.connect(device_IP_address, (int) device_port);
         state.lastMessageReceivedAt = now();        
+        if (boardstatus != "online") { 
+            sendEvent(name: "boardstatus", value: "online", isStateChange: true)    
+            boardstatus = "online"
+        }
+        boardstatus = "online"
         runIn(checkInterval, "connectionCheck");
-        refresh();  // se estava offline, preciso fazer um refresh
+        
     }
     catch (e) {
-        logError( "${device_IP_address} initialize error: ${e.message}" )
+        logError( "Initialize: com ${device_IP_address} com um error: ${e.message}" )
+        boardstatus = "offline"
         runIn(60, "initialize");
     }
     
     try{
          
-          logTrace("criando childs")
+          logTrace("Criando childs")
           createchilds()       
         
     }
     catch (e) {
-        logError( "initialize error: ${e.message}" )
-    }    
+        logError( "Error de Initialize: ${e.message}" )
+    }
+    runIn(10, "refresh");
 }
 
 
 def createchilds() {
-    state.childscreated = 1
+    if (state.childscreated == 0) {
+    
     String thisId = device.id
 	//log.info "info thisid " + thisId
 	def cd = getChildDevice("${thisId}-Switch")
     state.netids = "${thisId}-Switch-"
 	if (!cd) {
-        log.info "inputcount = " + state.inputcount 
+        log.info "Inputcount = " + state.inputcount 
         for(int i = 1; i<=state.inputcount; i++) {        
                 if (i < 10) {     //Verify to add double digits to switch name. 
                 numerorelay = "0" + Integer.toString(i)
@@ -209,16 +215,23 @@ def createchilds() {
         log.info "added switch # " + i + " from " + state.inputcount            
         
     }
-    }         
+    }
+      state.childscreated = 1   
+    }
+    else {
+        log.info "Childs já foram criados"
+    }
+  
 }
 
+
+//Conta os inputs/relays, via HTTP. 
 def buscainputcount(){
     try {
         httpGet("http://" + settings.device_IP_address + "/relay_cgi_load.cgi") { resp ->
             if (resp.success) {
-                logDebug "Busquei o numero de relays(): " + resp.data
-                //logDebug "initialize(): Response[3] = " + (resp.data as String)[3]
-                 
+                logDebug "Buscainputcount: Busquei o numero de relays(): " + resp.data
+               
                 //Verifica a quantidade de Relays que tem a placa, usando o primeiro digito do 3 caracter do response. (2 ou 4 ou 8 ou 1 ou 3)
                 inputCountV = (resp.data as String)[3] as int
                     
@@ -233,10 +246,9 @@ def buscainputcount(){
                 }
                 if (inputCountV == 3) {
                     inputCount = 32
-                }
-                               
-            state.inputcount = inputCount  // deixar o numero de relays na memoria
-       
+                }                         
+                state.inputcount = inputCount  // deixar o numero de relays na memoria
+               logDebug "Numero de Relays: " + inputCount
             }
             else {
                 if (resp.data) logDebug "initialize(): Falha para obter o # de relays ${resp.data}"
@@ -244,7 +256,7 @@ def buscainputcount(){
   
         }
     } catch (Exception e) {
-        log.warn "initialize(): Call failed: ${e.message}"
+        log.warn "BuscaInputs-Initialize(): Erro no BuscaInputs: ${e.message}"
        
     }
          def ipmolsmart = settings.device_IP_address
@@ -252,16 +264,16 @@ def buscainputcount(){
 }
 
 
-
 def refresh() {
-    logTrace('refresh()')
-    def msg = "00"    
+    logInfo('Refresh()')
+    def msg = "REFRESH"    
     sendCommand(msg)
 }
 
 
-
+/////////////////////////
 //Feedback e o tratamento 
+/////////////////////////
 
  def fetchChild(String type, String name){
     String thisId = device.id
@@ -328,7 +340,7 @@ def parse(msg) {
         log.debug "Placa MolSmart de 4CH"
     }       
     
-    //compare last parse result with current, and if different, compare changes. 
+    //Compare last PARSE result with current, and if different, compare changes. 
     if ((novaprimeira)&&(oldprimeira)) {  //if not empty in first run
 
     if (novaprimeira.compareToIgnoreCase(oldprimeira) == 0){
@@ -343,7 +355,7 @@ def parse(msg) {
          
             switch(diferenca) { 
                case 0: 
-               log.info "no changes in ch#" + (f+1) ;
+               log.info "No changes in Relay#" + (f+1) ;
                break                     
                case -1:  //  -1 is when light was turned ON                   
                 if (state.update == 1){     //no hace nada porque fue el switch
@@ -351,7 +363,7 @@ def parse(msg) {
                     
                 }
                 else {
-                   log.info "ON changes in ch#" + (f+1) ; 
+                   log.info "ON changes in Relay#" + (f+1) ; 
 
                  z = f+1  
                  if (z < 10) {     //Verify to add double digits to switch name. 
@@ -369,7 +381,7 @@ def parse(msg) {
                 }
                break                     
                case 1: // 1 is when light was turned OFF
-                    log.info "OFF changes in ch#" + (f+1) ;
+                    log.info "OFF changes in Relay#" + (f+1) ;
                  
 		         z = f+1  
                  if (z < 10) {     //Verify to add double digits to switch name. 
@@ -388,7 +400,7 @@ def parse(msg) {
                 break                     
 
                 default:
-                log.info "changes in ch#" + (f+1) + " with dif " + diferenca;
+                log.info "Changes in Relay#" + (f+1) + " with dif " + diferenca;
                 break
             }
         }        
@@ -436,24 +448,31 @@ def connectionCheck() {
     def now = now();
     
     if ( now - state.lastMessageReceivedAt > (checkInterval * 1000)) { 
-        logError("sem mensagens desde ${(now - state.lastMessageReceivedAt)/60000} minutos, reconectando ...");
-        sendEvent(name: "boardstatus", value: "offline", isStateChange: true)        
-        initialize();
+        logError("ConnectionCheck:Sem mensagens desde ${(now - state.lastMessageReceivedAt)/60000} minutos, vamos tentar reconectar ...");
+        if (boardstatus != "offline") { 
+            sendEvent(name: "boardstatus", value: "offline", isStateChange: true)    
+            boardstatus = "offline"
+        }
+        runIn(30, "connectionCheck");
+        //initialize();
     }
     else {
-        logDebug("Connection Check ok");
-        sendEvent(name: "boardstatus", value: "online", isStateChange: true)
+        logInfo("Connection Check: Status OK - Board Online");
+        if (boardstatus != "online") { 
+            sendEvent(name: "boardstatus", value: "online", isStateChange: true)    
+            boardstatus = "online"
+        }
         runIn(checkInterval, "connectionCheck");
     }
 }
 
 
 
+//Socket Status - NOT USED. 
 
 def socketStatus(String message) {
     if (message == "receive error: String index out of range: -1") {
         // This is some error condition that repeats every 15ms.
-
         interfaces.rawSocket.close();       
         logError( "socketStatus: ${message}");
         logError( "Closing connection to device" );
@@ -465,16 +484,14 @@ def socketStatus(String message) {
 
 
 
-
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Component Child
+// Component Child Actions
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void componentRefresh(cd){
 	if (logEnable) log.info "received refresh request from ${cd.displayName}"
 	refresh()
-    
-    
+        
 }
 
 def componentOn(cd){
@@ -491,19 +508,17 @@ void componentOff(cd){
 	off(cd)
     pauseExecution(250)
 
-
 }
 
-
+//////////////////////////////
 ////// Driver Commands /////////
+//////////////////////////////
 
 
 //SEND ON COMMAND IN CHILD BUTTON
 void on(cd) {
-//if (logEnable) log.debug "Turn device ON "	 + cd.deviceNetworkId	
 sendEvent(name: "switch", value: "on", isStateChange: true)
 cd.updateDataValue("Power","On")    
-//cd.parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])
 
 ipdomodulo  = state.ipaddress
 lengthvar =  (cd.deviceNetworkId.length())
@@ -532,7 +547,6 @@ int relay = 0
      def stringrelay = relay
      def comando = "1" + stringrelay
      interfaces.rawSocket.sendMessage(comando)
-     //log.info "Foi Ligado o Relay " + relay + " via TCP " + comando 
      sendEvent(name: "power", value: "on")
      state.update = 1  //variable to control update with board on parse
     
@@ -541,10 +555,8 @@ int relay = 0
 
 //SEND OFF COMMAND IN CHILD BUTTON 
 void off(cd) {
-//if (logEnable) log.debug "Turn device OFF "	 + cd.deviceNetworkId
 sendEvent(name: "switch", value: "off", isStateChange: true)
 cd.updateDataValue("Power","Off")
-//cd.parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])
     
 ipdomodulo  = state.ipaddress
 lengthvar =  (cd.deviceNetworkId.length())
@@ -572,8 +584,7 @@ int relay = 0
      def stringrelay = relay
      def comando = "2" + stringrelay
      interfaces.rawSocket.sendMessage(comando)
-     //log.info "Foi Desligado o Relay " + relay + " via TCP " + comando 
-     state.update = 1    //variable to control update with board on parse
+c     state.update = 1    //variable to control update with board on parse
     
 }
 
