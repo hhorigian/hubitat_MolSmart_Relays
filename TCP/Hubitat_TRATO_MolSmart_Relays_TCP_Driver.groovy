@@ -23,6 +23,7 @@
  *        1.7 26/06/2024 - Added "0" digit to switch name, to sort nicely the switch names. 
  *        1.8 27/06/2024 - Fixed double digit error on updates after v.1.7.  
  *        1.9 29/06/2024 - Added Board Status  Fix for Onlin/Offline to be used in Rule Machine Notifications + Improved Initialize/Update/Install Functions + Iproved Logging + Added ManualKeepAlive Check Command.
+ *        2.0 16/07/2024 - Fixed erro on line code - MANDATORY.
 
  */
 metadata {
@@ -196,12 +197,15 @@ def initialize() {
 
 
 def createchilds() {
-    if (state.childscreated == 0) {
-    
-    String thisId = device.id
+
+        String thisId = device.id
 	//log.info "info thisid " + thisId
 	def cd = getChildDevice("${thisId}-Switch")
-    state.netids = "${thisId}-Switch-"
+        state.netids = "${thisId}-Switch-"
+	
+	if (state.childscreated == 0) {
+    
+
 	if (!cd) {
         log.info "Inputcount = " + state.inputcount 
         for(int i = 1; i<=state.inputcount; i++) {        
@@ -409,7 +413,7 @@ def parse(msg) {
 
         for(int f = 0; f <state.inputcount; f++) {  
         val = state.primeira[f]
-        log.info "posição relay = " + f + ",  status = " + val  + "  (1=on / 2=off)"
+        //log.info "posição relay = " + f + ",  status = " + val  + "  (1=on / 2=off)"
         } 
         //log.info "Status do update = " + state.update
 }
@@ -584,7 +588,7 @@ int relay = 0
      def stringrelay = relay
      def comando = "2" + stringrelay
      interfaces.rawSocket.sendMessage(comando)
-c     state.update = 1    //variable to control update with board on parse
+     state.update = 1    //variable to control update with board on parse
     
 }
 
