@@ -23,7 +23,7 @@
  *        1.7 26/06/2024 - Added "0" digit to switch name, to sort nicely the switch names. 
  *        1.8 27/06/2024 - Fixed double digit error on updates after v.1.7.  
  *        1.9 29/06/2024 - Added Board Status  Fix for Onlin/Offline to be used in Rule Machine Notifications + Improved Initialize/Update/Install Functions + Iproved Logging + Added ManualKeepAlive Check Command.
- *        2.0 16/07/2024 - Fixed erro on line code - MANDATORY.
+ *        2.0 16/07/2024 - Fixed erro on line code 587 - MANDATORY UPDATE.
 
  */
 metadata {
