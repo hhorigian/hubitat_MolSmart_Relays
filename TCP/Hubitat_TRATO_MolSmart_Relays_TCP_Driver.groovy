@@ -83,8 +83,6 @@ def installed() {
     logTrace('installed()')
     state.childscreated = 0
     boardstatus = "offline"
-    //def novaprimeira = ""
-    //def oldprimeira = ""
     runIn(1800, logsOff)
 } //OK
 
@@ -96,16 +94,8 @@ def uninstalled() {
 
 def updated() {
     logTrace('updated()')
-    //initialize()
     refresh()
 }
-
-/* def clearAllvalues() {
-    logTrace('clearAllvalues()')
-    unschedule()
-    state.clear()
-    interfaces.rawSocket.close();
-}*/ 
 
 
 def ManualKeepAlive (){
@@ -113,18 +103,13 @@ def ManualKeepAlive (){
     interfaces.rawSocket.close();
     interfaces.rawSocket.close();
     unschedule()
-    state.clear()
-    def novaprimeira = ""
-    def oldprimeira = ""
-    partialMessage = '';
+    //state.clear()
     
-
     //Llama la busca de count de inputs+outputs
     buscainputcount()
     
     try {
         logTrace("ManualKeepAlive: Tentando conexão com o device no ${device_IP_address}...na porta ${device_port}");
-        //int i = 502
         interfaces.rawSocket.connect(device_IP_address, (int) device_port);
         state.lastMessageReceivedAt = now();        
         runIn(checkInterval, "connectionCheck");
@@ -141,7 +126,7 @@ def ManualKeepAlive (){
             boardstatus = "offline"
             sendEvent(name: "boardstatus", value: "offline", isStateChange: true)
         }
-        //runIn(60, "initialize");
+        runIn(60, "initialize");
     }    
 }
 
@@ -150,11 +135,7 @@ def initialize() {
     unschedule()
     logTrace('Run Initialize()')
     interfaces.rawSocket.close();
-    //state.clear()
-    def novaprimeira = ""
-    def oldprimeira = ""
-    partialMessage = '';
-
+    interfaces.rawSocket.close();
     if (!device_IP_address) {
         logError 'IP do Device not configured'
         return
@@ -170,7 +151,6 @@ def initialize() {
     
     try {
         logTrace("Initialize: Tentando conexão com o device no ${device_IP_address}...na porta configurada: ${device_port}");
-        //int i = 502
         interfaces.rawSocket.connect(device_IP_address, (int) device_port);
         state.lastMessageReceivedAt = now();        
         if (boardstatus != "online") { 
@@ -203,8 +183,7 @@ def initialize() {
 def createchilds() {
 
         String thisId = device.id
-	//log.info "info thisid " + thisId
-	def cd = getChildDevice("${thisId}-Switch")
+	    def cd = getChildDevice("${thisId}-Switch")
         state.netids = "${thisId}-Switch-"
 	
 	if (state.childscreated == 0) {
@@ -304,8 +283,8 @@ def parse(msg) {
     state.lastmessage = newmsg2
     
     log.info "****** New Block LOG Parse ********"
-    log.info "Last Message Received = " + newmsg2
-    log.debug "qtde de chars = " + newmsg2.length()   
+    log.info "Last Msg: " + newmsg2
+    log.debug "Qde chars = " + newmsg2.length()   
    
 //START PLACA 4CH 
     if (state.inputcount == 4) {
@@ -370,8 +349,8 @@ def parse(msg) {
             novaprimeira_output = newmsg2[0..3]
             novaprimeira_input  = newmsg2[5..8]
             
-            //sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
-            //log.debug "Placa MolSmart Online"
+            sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
+            log.debug "Placa MolSmart Online"
        
             //Verifico cambios en los RELAYS/OUTPUTS = Vinieron pelo APP;
                if (outputs_changed.contains("1")) {
@@ -415,7 +394,7 @@ def parse(msg) {
                        }
                    
                } else {                  
-                       log.info "Placa 4Ch - com feedback de status cada 30 segs"
+                       log.info "Placa 4Ch - com feedback de status cada 30 segs - IP " + state.ipaddress
                        log.info ("No changes reported")
               }   
             
@@ -505,8 +484,8 @@ def parse(msg) {
             novaprimeira_output = newmsg2[0..7]
             novaprimeira_input  = newmsg2[10..17]
             
-            //sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
-            //log.debug "Placa MolSmart Online"
+            sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
+            log.debug "Placa MolSmart Online"
        
             //Verifico cambios en los RELAYS/OUTPUTS = Vinieron pelo APP;
                if (outputs_changed.contains("1")) {
@@ -550,7 +529,7 @@ def parse(msg) {
                        }
                    
                } else {                  
-                       log.info "Placa 8Ch - com feedback de status cada 30 segs"
+                       log.info "Placa 8Ch - com feedback de status cada 30 segs - IP " + state.ipaddress
                        log.info ("No changes reported")
               }   
             
@@ -632,8 +611,8 @@ def parse(msg) {
             novaprimeira_output = newmsg2[0..15]
             novaprimeira_input  = newmsg2[17..34]
             
-            //sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
-            //log.debug "Placa MolSmart Online"
+            sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
+            log.debug "Placa MolSmart Online"
        
             //Verifico cambios en los RELAYS/OUTPUTS = Vinieron pelo APP;
                if (outputs_changed.contains("1")) {
@@ -677,7 +656,7 @@ def parse(msg) {
                        }
                    
                } else {                  
-                       log.info "Placa 16Ch - com feedback de status cada 30 segs"
+                       log.info "Placa 16Ch - com feedback de status cada 30 segs - IP " + state.ipaddress
                        log.info ("No changes reported")
               }   
             
@@ -758,8 +737,8 @@ def parse(msg) {
             novaprimeira_output = newmsg2[0..31]
             novaprimeira_input  = newmsg2[33..65]
             
-            //sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
-            //log.debug "Placa MolSmart Online"
+            sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
+            log.debug "Placa MolSmart Online"
        
             //Verifico cambios en los RELAYS/OUTPUTS = Vinieron pelo APP;
                if (outputs_changed.contains("1")) {
@@ -803,7 +782,7 @@ def parse(msg) {
                        }
                    
                } else {                  
-                       log.info "Placa 32Ch - com feedback de status cada 30 segs"
+                       log.info "Placa 32Ch - com feedback de status cada 30 segs - IP " + state.ipaddress
                        log.info ("No changes reported")
               }   
             
