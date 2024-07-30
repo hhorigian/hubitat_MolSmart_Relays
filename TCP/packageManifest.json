@@ -1,10 +1,11 @@
 {
  "packageName":"MolSmart - Relay 4/8/16/32CH (TCP)",
  "author":"Vartan Horigian",
- "version":"2.0",
+ "version":"2.1",
  "minimumHEVersion":"2.3.7.100",
- "dateReleased":"2024-07-15",
- "releaseNotes":" Fixed error on line code 587 - MANDATORY UPDATE.  ",
+ "dateReleased":"2024-07-30",
+ "releaseNotes":"Changed ouput status reading response method for TCP + Improved feedback response and status + Fixed false ghost feedback + Changed Master on/Master Off sequence with 250ms after each ch.  
+",
  "drivers": [
   {
      "id":"b345c769-c877-46f5-b066-50e92d3bd051",
