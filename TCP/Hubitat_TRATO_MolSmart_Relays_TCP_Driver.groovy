@@ -25,6 +25,7 @@
  *        1.9 29/06/2024 - Added Board Status  Fix for Onlin/Offline to be used in Rule Machine Notifications + Improved Initialize/Update/Install Functions + Improved Logging + Added ManualKeepAlive Check Command.
  *        2.0 16/07/2024 - Fixed erro on line code 587 - MANDATORY UPDATE.
  *        2.1 30/07/2024 - Changed ouput status reading response method for TCP + Improved feedback response and status + Fixed false ghost feedback + Changed Master on/Master Off sequence with 250ms after each ch.  
+ *        2.2 30/07/2024 - Fixed 16CH Count Relays. Fixed 32Ch.  Update for Long NetworkIds, used a new function to find index of in lines 959 and 1006. Added 32CH Master on/off.
 
 
  */
@@ -548,13 +549,13 @@ def parse(msg) {
         if ((newmsg2.length() > 140 )) {
              //log.info "Entrou no > 140.."
              
-             outputs_changed_1 = newmsg2[39..54]    //changes in relays reported in 1st line of return. Sometimes it returns in first line. 
+             outputs_changed_1 = newmsg2[37..52]    //changes in relays reported in 1st line of return. Sometimes it returns in first line. 
              //log.debug " outputs_changed = " +  outputs_changed_1  + " qtde chars = " + outputs_changed_1.length()
              
-             outputs_changed_2 = newmsg2[114..129]  //changes in relays reported in 2nd line of return  
+             outputs_changed_2 = newmsg2[108..123]  //changes in relays reported in 2nd line of return  
              //log.debug " outputs_changed_2 = " +  outputs_changed_2 + " qtde chars = " + outputs_changed_2.length()
              
-             outputs_status = newmsg2[75..90]     //status of relays reported in 2nd line of return 
+             outputs_status = newmsg2[71..86]     //status of relays reported in 2nd line of return 
              //log.debug " outputs_status = " +  outputs_status + " qtde chars = " + outputs_status.length()
 
                    if ((outputs_changed_2.contains("1")) || (outputs_changed_1.contains("1"))) {
@@ -604,13 +605,17 @@ def parse(msg) {
         } //LENGTH = 150
         
                   
-     if ((newmsg2.length() == 75 )) {    
+     if ((newmsg2.length() == 71 )) {    
             
-            outputs_changed = newmsg2[39..54]       
-            inputs_changed = newmsg2[56..74]
+            outputs_changed = newmsg2[37..52]
+            //log.info "outputs_changed = " + outputs_changed
+            inputs_changed = newmsg2[55..70] 
+            //log.info "inputs_changed = " + inputs_changed
             novaprimeira_output = newmsg2[0..15]
-            novaprimeira_input  = newmsg2[17..34]
-            
+            //log.info "novaprimeira_output = " + novaprimeira_output
+            novaprimeira_input  = newmsg2[17..32]
+            //log.info "novaprimeira_input = " + novaprimeira_input
+         
             sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
             log.debug "Placa MolSmart Online"
        
@@ -953,8 +958,10 @@ ipdomodulo  = state.ipaddress
 lengthvar =  (cd.deviceNetworkId.length())
 int relay = 0
 /// Inicio verificación del length    
-      def substr1 = (cd.deviceNetworkId.indexOf("-",5))
-      def result01 = lengthvar - substr1 
+//    def substr1 = (cd.deviceNetworkId.indexOf("-",5))
+      def substr1 = cd.deviceNetworkId.indexOf("-", cd.deviceNetworkId.indexOf("-") + 1);
+
+    def result01 = lengthvar - substr1 
       if (result01 > 2  ) {
            def  substr2a = substr1 + 1
            def  substr2b = substr1 + 2
@@ -992,7 +999,8 @@ ipdomodulo  = state.ipaddress
 lengthvar =  (cd.deviceNetworkId.length())
 int relay = 0
 /// Inicio verificación del length    
-      def substr1 = (cd.deviceNetworkId.indexOf("-",5))
+//    def substr1 = (cd.deviceNetworkId.indexOf("-",5))
+      def substr1 = cd.deviceNetworkId.indexOf("-", cd.deviceNetworkId.indexOf("-") + 1);
       def result01 = lengthvar - substr1 
       if (result01 > 2  ) {
            def  substr2a = substr1 + 1
