@@ -22,8 +22,10 @@
  *        1.6 13/06/2024 - Added Help Guide Link  v2
  *        1.7 26/06/2024 - Added "0" digit to switch name, to sort nicely the switch names. 
  *        1.8 27/06/2024 - Fixed double digit error on updates after v.1.7.  
- *        1.9 29/06/2024 - Added Board Status  Fix for Onlin/Offline to be used in Rule Machine Notifications + Improved Initialize/Update/Install Functions + Iproved Logging + Added ManualKeepAlive Check Command.
+ *        1.9 29/06/2024 - Added Board Status  Fix for Onlin/Offline to be used in Rule Machine Notifications + Improved Initialize/Update/Install Functions + Improved Logging + Added ManualKeepAlive Check Command.
  *        2.0 16/07/2024 - Fixed erro on line code 587 - MANDATORY UPDATE.
+ *        2.1 30/07/2024 - Changed ouput status reading response method for TCP + Improved feedback response and status + Fixed false ghost feedback + Changed Master on/Master Off sequence with 250ms after each ch.  
+
 
  */
 metadata {
@@ -41,6 +43,8 @@ command "buscainputcount"
 command "createchilds"
 command "connectionCheck"
 command "ManualKeepAlive"
+command "masteron"
+command "masteroff"
 //command "clearAllvalues"
 
     import groovy.transform.Field
@@ -57,7 +61,7 @@ command "ManualKeepAlive"
         input "device_IP_address", "text", title: "MolSmart IP Address", required: true 
         input "device_port", "number", title: "IP Port of Device", required: true, defaultValue: 502
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
-        input 'logInfo', 'bool', title: 'Show Info Logs?',  required: false, defaultValue: true
+        input 'logInfo', 'bool', title: 'Show Info Logs?',  required: false, defaultValue: false
         input 'logWarn', 'bool', title: 'Show Warning Logs?', required: false, defaultValue: false
         input 'logDebug', 'bool', title: 'Show Debug Logs?', description: 'Only leave on when required', required: false, defaultValue: false
         input 'logTrace', 'bool', title: 'Show Detailed Logs?', description: 'Only leave on when required', required: false, defaultValue: false
@@ -291,131 +295,525 @@ def refresh() {
 
 
 def parse(msg) {
+   
     state.lastMessageReceived = new Date(now()).toString();
     state.lastMessageReceivedAt = now();
-
-    def oldmessage = state.lastmessage
-    //log.info "oldmessage = " + oldmessage
-    
-    def oldprimeira = state.primeira
-    //log.info "oldprimeira = " + oldprimeira
-    state.lastprimeira =  state.primeira
     
     def newmsg = hubitat.helper.HexUtils.hexStringToByteArray(msg) //na Mol, o resultado vem em HEX, então preciso converter para Array
-    def newmsg2 = new String(newmsg) // Array para String
-    
+    def newmsg2 = new String(newmsg) // Array para String    
     state.lastmessage = newmsg2
     
-
-    //(Doing a search with  "Contain" to see the board model, and qty of relays inside of the model MolSmart 4/8/16/32 relays). 
-
-    if (newmsg2.contains("32")) {
-        state.primeira = newmsg2[0..31]
-        state.channels = 32
-        novaprimeira = newmsg2[0..31]     
-        log.debug "Placa MolSmart de 32CH"
-        sendEvent(name: "boardstatus", value: "online", isStateChange: true)
-        
-    }    
-    
-    if (newmsg2.contains("16")) {
-        state.primeira = newmsg2[0..15]
-        state.channels = 16
-        novaprimeira = newmsg2[0..15]
-        log.debug "Placa MolSmart de 16CH"
-        sendEvent(name: "boardstatus", value: "online", isStateChange: true)
-        
-    }   
-    
-    if (newmsg2.contains("8")) {
-        state.primeira = newmsg2[0..7]
-        state.channels = 8
-        novaprimeira = newmsg2[0..7]
-        log.debug "Placa MolSmart de 8CH"
-        sendEvent(name: "boardstatus", value: "online", isStateChange: true)
-
-    }      
-
-    if (newmsg2.contains("4")) {
-        state.primeira = newmsg2[0..3]
+    log.info "****** New Block LOG Parse ********"
+    log.info "Last Message Received = " + newmsg2
+    log.debug "qtde de chars = " + newmsg2.length()   
+   
+//START PLACA 4CH 
+    if (state.inputcount == 4) {
         state.channels = 4
-        novaprimeira = newmsg2[0..3]
-        sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
-        log.debug "Placa MolSmart de 4CH"
-    }       
-    
-    //Compare last PARSE result with current, and if different, compare changes. 
-    if ((novaprimeira)&&(oldprimeira)) {  //if not empty in first run
 
-    if (novaprimeira.compareToIgnoreCase(oldprimeira) == 0){
-        log.info "No changes in relay status"
-    }
-    else{
-        
-        for(int f = 0; f <state.inputcount; f++) {  
-        def valprimeira = state.primeira[f]
-        def valold = oldprimeira[f]
-        def diferenca = valold.compareToIgnoreCase(valprimeira)
-         
-            switch(diferenca) { 
-               case 0: 
-               log.info "No changes in Relay#" + (f+1) ;
-               break                     
-               case -1:  //  -1 is when light was turned ON                   
-                if (state.update == 1){     //no hace nada porque fue el switch
-                log.info "(NOTHING) - ON changes in ch#" + (f+1) ;
-                    
-                }
-                else {
-                   log.info "ON changes in Relay#" + (f+1) ; 
+        if ((newmsg2.length() > 43 )) {
+             outputs_changed_1 = newmsg2[12..16]  //changes in relays reported in 1st line of return. Sometimes it returns in first line. 
+             outputs_changed_2 = newmsg2[34..37]  //changes in relays reported in 2nd line of return
+             outputs_status = newmsg2[22..25]     //status of relays reported in 2nd line of return 
 
-                 z = f+1  
+                   if ((outputs_changed_2.contains("1")) || (outputs_changed_1.contains("1"))) {
+                       if (outputs_changed_2.contains("1")) {
+                                relaychanged = outputs_changed_2.indexOf('1'); 
+                           
+                       } else
+                           {
+                                relaychanged = outputs_changed_1.indexOf('1');
+                           }
+                       
+                   log.debug ("Yes - change in Relay (with input)")
+                   log.debug "outputs_changed_2 relay # = " + relaychanged    
+                        
+                 z = relaychanged +1 
                  if (z < 10) {     //Verify to add double digits to switch name. 
-                 numerorelay = "0" + Integer.toString(f+1)
+                 numerorelay = "0" + Integer.toString(relaychanged+1)
+                     
                  }    
+                
                  else {
-                 numerorelay = Integer.toString(f+1)
-                 }  
-			
-                    chdid = state.netids + numerorelay
-                    def cd = getChildDevice(chdid)
-                    getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])
-                    //buscar y cambiar el status a ON del switch
-                    
-                }
-               break                     
-               case 1: // 1 is when light was turned OFF
-                    log.info "OFF changes in Relay#" + (f+1) ;
+                 numerorelay = Integer.toString(relaychanged+1)
+                 } 
+                 chdid = state.netids + numerorelay               
+                 def cd = getChildDevice(chdid)
                  
-		         z = f+1  
+                 statusrelay = outputs_status.getAt(relaychanged)
+                       //log.debug "relaychanged  = " +  relaychanged
+                       //log.debug "statusrelay = " +  statusrelay
+                       switch(statusrelay) { 
+                       case "0": 
+                       log.info "OFF"
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])                               
+                       break      
+                           
+                       case "1": 
+                       log.info "ON" 
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])    
+                       break
+                           
+                       default:
+                       log.info "NADA" 
+                       break
+                           
+                       }
+                 }            
+        } //LENGTH = 44
+        
+        
+        if ((newmsg2.length() == 22 )) {    
+            
+            outputs_changed = newmsg2[12..16]       
+            inputs_changed = newmsg2[17..20]
+            novaprimeira_output = newmsg2[0..3]
+            novaprimeira_input  = newmsg2[5..8]
+            
+            //sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
+            //log.debug "Placa MolSmart Online"
+       
+            //Verifico cambios en los RELAYS/OUTPUTS = Vinieron pelo APP;
+               if (outputs_changed.contains("1")) {
+                   relaychanged = outputs_changed.indexOf('1'); 
+                   log.debug ("Yes - change in relay (only) ")
+                   log.debug "outputs_changed relay # = " + relaychanged  
+                                  
+                 z = relaychanged +1 
+                 log.debug "z = " + z
                  if (z < 10) {     //Verify to add double digits to switch name. 
-                 numerorelay = "0" + Integer.toString(f+1)
+                 numerorelay = "0" + Integer.toString(relaychanged+1)
+                 //log.debug "fue menor que 10 = " + numerorelay
                  }    
                  else {
-                 numerorelay = Integer.toString(f+1)
+                 numerorelay = Integer.toString(relaychanged+1)
+                 //log.debug "fue mayor que 10 = " + numerorelay    
                  }  
-		    
-		    
-		            chdid = state.netids + numerorelay
-                    def cd = getChildDevice(chdid) 
-                    getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])                   
-                    //buscar y cambiar el status a OFF del switch
+                 chdid = state.netids + numerorelay               
+                 def cd = getChildDevice(chdid)
+                 
+                    
+                  //buscar y cambiar el status a ON del switch
+
+                  statusrelay = novaprimeira_output.getAt(relaychanged)
+                  log.debug "statusrelay = " +  statusrelay
+                       switch(statusrelay) { 
+                       case "0": 
+                       log.info "OFF"
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])                               
+                       break      
+                           
+                       case "1": 
+                       log.info "ON" 
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])    
+                       break
+                           
+                       default:
+                       log.info "NADA" 
+                       break
+                           
+                       }
+                   
+               } else {                  
+                       log.info "Placa 4Ch - com feedback de status cada 30 segs"
+                       log.info ("No changes reported")
+              }   
+            
+        }
+     
+     }  //END PLACA 4CH        
     
-                break                     
+    
+    ///  INPUTS //////
+      /*     //codigo para verificar alteração no input
+             if (inputs_changed.contains("1")) {
+                   log.info ("Yes - change in Input")
+                   inputchanged = inputs_changed.indexOf('1'); 
+                   log.info "inputs_changed input # = " + inputchanged
+             }
+       */   
+    
 
-                default:
-                log.info "Changes in Relay#" + (f+1) + " with dif " + diferenca;
-                break
-            }
-        }        
-        state.update = 0  
-    }}
+ //START PLACA 8CH 
+    if (state.inputcount == 8) {
+        state.channels = 8    
+    
+            
+        if ((newmsg2.length() > 75 )) {
+             //log.info "Entrou no > 70.."
+             
+             outputs_changed_1 = newmsg2[20..27]    //changes in relays reported in 1st line of return. Sometimes it returns in first line. 
+             //log.debug " outputs_changed = " +  outputs_changed_1  + " qtde chars = " + outputs_changed_1.length()
+             
+             outputs_changed_2 = newmsg2[58..65]  //changes in relays reported in 2nd line of return  
+             //log.debug " outputs_changed_2 = " +  outputs_changed_2 + " qtde chars = " + outputs_changed_2.length()
+             
+             outputs_status = newmsg2[38..45]     //status of relays reported in 2nd line of return 
+             //log.debug " outputs_status = " +  outputs_status + " qtde chars = " + outputs_status.length()
 
-        for(int f = 0; f <state.inputcount; f++) {  
-        val = state.primeira[f]
-        //log.info "posição relay = " + f + ",  status = " + val  + "  (1=on / 2=off)"
-        } 
-        //log.info "Status do update = " + state.update
+                   if ((outputs_changed_2.contains("1")) || (outputs_changed_1.contains("1"))) {
+                       if (outputs_changed_2.contains("1")) {
+                                relaychanged = outputs_changed_2.indexOf('1'); 
+                           
+                       } else
+                           {
+                                relaychanged = outputs_changed_1.indexOf('1');
+                           }
+                       
+                   log.debug ("Yes - change in Relay (with input)")
+                   log.debug "outputs_changed_2 relay # = " + relaychanged    
+                        
+                 z = relaychanged +1 
+                 if (z < 10) {     //Verify to add double digits to switch name. 
+                 numerorelay = "0" + Integer.toString(relaychanged+1)
+                     
+                 }    
+                
+                 else {
+                 numerorelay = Integer.toString(relaychanged+1)
+                 } 
+                 chdid = state.netids + numerorelay               
+                 def cd = getChildDevice(chdid)
+                 
+                 statusrelay = outputs_status.getAt(relaychanged)
+                       //log.debug "relaychanged  = " +  relaychanged
+                       //log.debug "statusrelay = " +  statusrelay
+                       switch(statusrelay) { 
+                       case "0": 
+                       log.info "OFF"
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])                               
+                       break      
+                           
+                       case "1": 
+                       log.info "ON" 
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])    
+                       break
+                           
+                       default:
+                       log.info "NADA" 
+                       break
+                           
+                       }
+                 }            
+        } //LENGTH = 76
+        
+                
+           if ((newmsg2.length() == 38 )) {    
+            
+            outputs_changed = newmsg2[20..27]       
+            inputs_changed = newmsg2[29..37]
+            novaprimeira_output = newmsg2[0..7]
+            novaprimeira_input  = newmsg2[10..17]
+            
+            //sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
+            //log.debug "Placa MolSmart Online"
+       
+            //Verifico cambios en los RELAYS/OUTPUTS = Vinieron pelo APP;
+               if (outputs_changed.contains("1")) {
+                   relaychanged = outputs_changed.indexOf('1'); 
+                   log.debug ("Yes - change in relay (only) ")
+                   log.debug "outputs_changed relay # = " + relaychanged  
+                                  
+                 z = relaychanged +1 
+                 //log.debug "z = " + z
+                 if (z < 10) {     //Verify to add double digits to switch name. 
+                 numerorelay = "0" + Integer.toString(relaychanged+1)
+                 //log.debug "fue menor que 10 = " + numerorelay
+                 }    
+                 else {
+                 numerorelay = Integer.toString(relaychanged+1)
+                 //log.debug "fue mayor que 10 = " + numerorelay    
+                 }  
+                 chdid = state.netids + numerorelay               
+                 def cd = getChildDevice(chdid)
+                 
+                    
+                  //buscar y cambiar el status a ON del switch
+
+                  statusrelay = novaprimeira_output.getAt(relaychanged)
+                  //log.debug "statusrelay = " +  statusrelay
+                       switch(statusrelay) { 
+                       case "0": 
+                       log.info "OFF"
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])                               
+                       break      
+                           
+                       case "1": 
+                       log.info "ON" 
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])    
+                       break
+                           
+                       default:
+                       log.info "NADA" 
+                       break
+                           
+                       }
+                   
+               } else {                  
+                       log.info "Placa 8Ch - com feedback de status cada 30 segs"
+                       log.info ("No changes reported")
+              }   
+            
+        }
+     
+     } //END PLACA 8CH
+
+    
+    
+    
+ //START PLACA 16CH 
+    if (state.inputcount == 16) {
+        state.channels = 16    
+    
+            
+        if ((newmsg2.length() > 140 )) {
+             //log.info "Entrou no > 140.."
+             
+             outputs_changed_1 = newmsg2[39..54]    //changes in relays reported in 1st line of return. Sometimes it returns in first line. 
+             //log.debug " outputs_changed = " +  outputs_changed_1  + " qtde chars = " + outputs_changed_1.length()
+             
+             outputs_changed_2 = newmsg2[114..129]  //changes in relays reported in 2nd line of return  
+             //log.debug " outputs_changed_2 = " +  outputs_changed_2 + " qtde chars = " + outputs_changed_2.length()
+             
+             outputs_status = newmsg2[75..90]     //status of relays reported in 2nd line of return 
+             //log.debug " outputs_status = " +  outputs_status + " qtde chars = " + outputs_status.length()
+
+                   if ((outputs_changed_2.contains("1")) || (outputs_changed_1.contains("1"))) {
+                       if (outputs_changed_2.contains("1")) {
+                                relaychanged = outputs_changed_2.indexOf('1'); 
+                           
+                       } else
+                           {
+                                relaychanged = outputs_changed_1.indexOf('1');
+                           }
+                       
+                   log.debug ("Yes - change in Relay (with input)")
+                   log.debug "outputs_changed_2 relay # = " + relaychanged    
+                        
+                 z = relaychanged +1 
+                 if (z < 10) {     //Verify to add double digits to switch name. 
+                 numerorelay = "0" + Integer.toString(relaychanged+1)
+                     
+                 }    
+                
+                 else {
+                 numerorelay = Integer.toString(relaychanged+1)
+                 } 
+                 chdid = state.netids + numerorelay               
+                 def cd = getChildDevice(chdid)
+                 
+                 statusrelay = outputs_status.getAt(relaychanged)
+                       //log.debug "relaychanged  = " +  relaychanged
+                       //log.debug "statusrelay = " +  statusrelay
+                       switch(statusrelay) { 
+                       case "0": 
+                       log.info "OFF"
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])                               
+                       break      
+                           
+                       case "1": 
+                       log.info "ON" 
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])    
+                       break
+                           
+                       default:
+                       log.info "NADA" 
+                       break
+                           
+                       }
+                 }            
+        } //LENGTH = 150
+        
+                  
+     if ((newmsg2.length() == 75 )) {    
+            
+            outputs_changed = newmsg2[39..54]       
+            inputs_changed = newmsg2[56..74]
+            novaprimeira_output = newmsg2[0..15]
+            novaprimeira_input  = newmsg2[17..34]
+            
+            //sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
+            //log.debug "Placa MolSmart Online"
+       
+            //Verifico cambios en los RELAYS/OUTPUTS = Vinieron pelo APP;
+               if (outputs_changed.contains("1")) {
+                   relaychanged = outputs_changed.indexOf('1'); 
+                   log.debug ("Yes - change in relay (only) ")
+                   log.debug "outputs_changed relay # = " + relaychanged  
+                                  
+                 z = relaychanged +1 
+                 //log.debug "z = " + z
+                 if (z < 10) {     //Verify to add double digits to switch name. 
+                 numerorelay = "0" + Integer.toString(relaychanged+1)
+                 //log.debug "fue menor que 10 = " + numerorelay
+                 }    
+                 else {
+                 numerorelay = Integer.toString(relaychanged+1)
+                 //log.debug "fue mayor que 10 = " + numerorelay    
+                 }  
+                 chdid = state.netids + numerorelay               
+                 def cd = getChildDevice(chdid)
+                 
+                    
+                  //buscar y cambiar el status a ON del switch
+
+                  statusrelay = novaprimeira_output.getAt(relaychanged)
+                  //log.debug "statusrelay = " +  statusrelay
+                       switch(statusrelay) { 
+                       case "0": 
+                       log.info "OFF"
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])                               
+                       break      
+                           
+                       case "1": 
+                       log.info "ON" 
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])    
+                       break
+                           
+                       default:
+                       log.info "NADA" 
+                       break
+                           
+                       }
+                   
+               } else {                  
+                       log.info "Placa 16Ch - com feedback de status cada 30 segs"
+                       log.info ("No changes reported")
+              }   
+            
+        }
+     
+     } //PLACA 16CH
+    
+
+ 
+ //START PLACA 32CH 
+    if (state.inputcount == 32) {
+        state.channels = 32   
+    
+            
+        if ((newmsg2.length() > 140 )) {
+             //log.info "Entrou no > 140.."
+            
+             outputs_changed_1 = newmsg2[69..100]    //changes in relays reported in 1st line of return. Sometimes it returns in first line. 
+             //log.debug " outputs_changed = " +  outputs_changed_1  + " qtde chars = " + outputs_changed_1.length()
+             
+             outputs_changed_2 = newmsg2[204..235]  //changes in relays reported in 2nd line of return  
+             //log.debug " outputs_changed_2 = " +  outputs_changed_2 + " qtde chars = " + outputs_changed_2.length()
+             
+             outputs_status = newmsg2[135..166]     //status of relays reported in 2nd line of return 
+             //log.debug " outputs_status = " +  outputs_status + " qtde chars = " + outputs_status.length()
+
+                   if ((outputs_changed_2.contains("1")) || (outputs_changed_1.contains("1"))) {
+                       if (outputs_changed_2.contains("1")) {
+                                relaychanged = outputs_changed_2.indexOf('1'); 
+                           
+                       } else
+                           {
+                                relaychanged = outputs_changed_1.indexOf('1');
+                           }
+                       
+                   log.debug ("Yes - change in Relay (with input)")
+                   log.debug "outputs_changed_2 relay # = " + relaychanged    
+                        
+                 z = relaychanged +1 
+                 if (z < 10) {     //Verify to add double digits to switch name. 
+                 numerorelay = "0" + Integer.toString(relaychanged+1)
+                     
+                 }    
+                
+                 else {
+                 numerorelay = Integer.toString(relaychanged+1)
+                 } 
+                 chdid = state.netids + numerorelay               
+                 def cd = getChildDevice(chdid)
+                 
+                 statusrelay = outputs_status.getAt(relaychanged)
+                       //log.debug "relaychanged  = " +  relaychanged
+                       //log.debug "statusrelay = " +  statusrelay
+                       switch(statusrelay) { 
+                       case "0": 
+                       log.info "OFF"
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])                               
+                       break      
+                           
+                       case "1": 
+                       log.info "ON" 
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])    
+                       break
+                           
+                       default:
+                       log.info "NADA" 
+                       break
+                           
+                       }
+                 }            
+        } //LENGTH = 150
+        
+                  
+     if ((newmsg2.length() == 135 )) {    
+            
+            outputs_changed = newmsg2[69..100]       
+            inputs_changed = newmsg2[102..134]
+            novaprimeira_output = newmsg2[0..31]
+            novaprimeira_input  = newmsg2[33..65]
+            
+            //sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
+            //log.debug "Placa MolSmart Online"
+       
+            //Verifico cambios en los RELAYS/OUTPUTS = Vinieron pelo APP;
+               if (outputs_changed.contains("1")) {
+                   relaychanged = outputs_changed.indexOf('1'); 
+                   log.debug ("Yes - change in relay (only) ")
+                   log.debug "outputs_changed relay # = " + relaychanged  
+                                  
+                 z = relaychanged +1 
+                 //log.debug "z = " + z
+                 if (z < 10) {     //Verify to add double digits to switch name. 
+                 numerorelay = "0" + Integer.toString(relaychanged+1)
+                 //log.debug "fue menor que 10 = " + numerorelay
+                 }    
+                 else {
+                 numerorelay = Integer.toString(relaychanged+1)
+                 //log.debug "fue mayor que 10 = " + numerorelay    
+                 }  
+                 chdid = state.netids + numerorelay               
+                 def cd = getChildDevice(chdid)
+                 
+                    
+                  //buscar y cambiar el status a ON del switch
+
+                  statusrelay = novaprimeira_output.getAt(relaychanged)
+                  //log.debug "statusrelay = " +  statusrelay
+                       switch(statusrelay) { 
+                       case "0": 
+                       log.info "OFF"
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])                               
+                       break      
+                           
+                       case "1": 
+                       log.info "ON" 
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])    
+                       break
+                           
+                       default:
+                       log.info "NADA" 
+                       break
+                           
+                       }
+                   
+               } else {                  
+                       log.info "Placa 32Ch - com feedback de status cada 30 segs"
+                       log.info ("No changes reported")
+              }   
+            
+        }
+     
+     } //PLACA 32CH
+    
+
+        
+    
 }
 
 
@@ -426,16 +824,62 @@ def parse(msg) {
 def on()
 {
     logDebug("Master Power ON()")
-    def msg = "1X"
-    sendCommand(msg)
+    masteron()
+    //def msg = "1X"
+    //sendCommand(msg)
 }
 
 def off()
 {
     logDebug("Master Power OFF()")
-    def msg = "2X"
-    sendCommand(msg)
+    masteroff()
+    //def msg = "2X"
+    //sendCommand(msg)
 }
+
+
+def masteron()
+{
+        log.info "MasterON() Executed"  
+        for(int i = 1; i<=state.inputcount; i++) {        
+                if (i < 10) {     //Verify to add double digits to switch name. 
+                numerorelay = "0" + Integer.toString(i)
+                }    
+                else {
+                numerorelay = Integer.toString(i)
+                }     
+    
+                 chdid = state.netids + numerorelay               
+                 def cd = getChildDevice(chdid)
+                 getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])    
+                 log.info "Switch " + cd + " turned ON"
+                 on(cd)  
+                 pauseExecution(250)     
+       
+        }
+}
+
+def masteroff()
+{
+        log.info "MasterOFF() Executed"
+        for(int i = 1; i<=state.inputcount; i++) {        
+                if (i < 10) {     //Verify to add double digits to switch name. 
+                numerorelay = "0" + Integer.toString(i)
+                }    
+                else {
+                numerorelay = Integer.toString(i)
+                }     
+    
+                 chdid = state.netids + numerorelay               
+                 def cd = getChildDevice(chdid)
+                 getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])    
+                 log.info "Switch " + cd + " turned OFF"
+                 off(cd)  
+                 pauseExecution(250)     
+       
+        }
+}
+
 
 
 private sendCommand(s) {
@@ -458,7 +902,7 @@ def connectionCheck() {
             boardstatus = "offline"
         }
         runIn(30, "connectionCheck");
-        //initialize();
+        initialize();
     }
     else {
         logInfo("Connection Check: Status OK - Board Online");
@@ -500,7 +944,8 @@ void componentRefresh(cd){
 
 def componentOn(cd){
 	if (logEnable) log.info "received on request from ${cd.displayName}"
-    getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])       
+    getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])  
+    //log.debug "cd on = " + cd 
     on(cd)  
     pauseExecution(250)
     
@@ -508,7 +953,8 @@ def componentOn(cd){
 
 void componentOff(cd){
 	if (logEnable) log.info "received off request from ${cd.displayName}"
-    getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])    
+    getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])   
+    //log.debug "cd off = " + cd 
 	off(cd)
     pauseExecution(250)
 
@@ -522,7 +968,7 @@ void componentOff(cd){
 //SEND ON COMMAND IN CHILD BUTTON
 void on(cd) {
 sendEvent(name: "switch", value: "on", isStateChange: true)
-cd.updateDataValue("Power","On")    
+//cd.updateDataValue("Power","On")    
 
 ipdomodulo  = state.ipaddress
 lengthvar =  (cd.deviceNetworkId.length())
@@ -551,8 +997,9 @@ int relay = 0
      def stringrelay = relay
      def comando = "1" + stringrelay
      interfaces.rawSocket.sendMessage(comando)
-     sendEvent(name: "power", value: "on")
-     state.update = 1  //variable to control update with board on parse
+     //sendEvent(name: "power", value: "on")
+     log.info "Send command ON = " + comando
+     //state.update = 1  //variable to control update with board on parse
     
 }
 
@@ -560,7 +1007,7 @@ int relay = 0
 //SEND OFF COMMAND IN CHILD BUTTON 
 void off(cd) {
 sendEvent(name: "switch", value: "off", isStateChange: true)
-cd.updateDataValue("Power","Off")
+//cd.updateDataValue("Power","Off")
     
 ipdomodulo  = state.ipaddress
 lengthvar =  (cd.deviceNetworkId.length())
@@ -588,7 +1035,7 @@ int relay = 0
      def stringrelay = relay
      def comando = "2" + stringrelay
      interfaces.rawSocket.sendMessage(comando)
-     state.update = 1    //variable to control update with board on parse
+     log.info "Send command OFF = " + comando
     
 }
 
