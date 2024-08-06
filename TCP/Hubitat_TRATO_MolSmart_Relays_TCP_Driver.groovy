@@ -26,7 +26,7 @@
  *        2.0 16/07/2024 - Fixed erro on line code 587 - MANDATORY UPDATE.
  *        2.1 30/07/2024 - Changed ouput status reading response method for TCP + Improved feedback response and status + Fixed false ghost feedback + Changed Master on/Master Off sequence with 250ms after each ch.  
  *        2.2 30/07/2024 - Fixed 16CH Count Relays. Fixed 32Ch.  Update for Long NetworkIds, used a new function to find index of in lines 959 and 1006. Added 32CH Master on/off.
-
+ *        2.3 05/08/2024 - Added Line 278, with String thisId = device.id
 
  */
 metadata {
@@ -275,7 +275,11 @@ def refresh() {
 
 
 def parse(msg) {
-   
+    
+    String thisId = device.id
+    //def cd = getChildDevice("${thisId}-Switch")
+    state.netids = "${thisId}-Switch-"
+	
     state.lastMessageReceived = new Date(now()).toString();
     state.lastMessageReceivedAt = now();
     
