@@ -1,5 +1,5 @@
 {
- "packageName":"MolSmart - Relay 4/8/16/32CH (TCP)",
+ "packageName":"MolSmart - Relay 4/8/16/32CH",
  "author":"Vartan Horigian",
  "version":"2.2",
  "minimumHEVersion":"2.3.7.100",
@@ -9,7 +9,7 @@
  "drivers": [
   {
      "id":"b345c769-c877-46f5-b066-50e92d3bd051",
-     "name":"MolSmart - Relay 4/8/16/32CH (TCP)",
+     "name":"MolSmart - Relay 4/8/16/32CH",
      "namespace":"TRATO",
      "location":"https://raw.githubusercontent.com/hhorigian/hubitat_MolSmart_Relays/main/TCP/Hubitat_TRATO_MolSmart_Relays_TCP_Driver.groovy",
      "required":true
