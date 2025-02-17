@@ -28,10 +28,17 @@
  *        2.2 30/07/2024 - Fixed 16CH Count Relays. Fixed 32Ch.  Update for Long NetworkIds, used a new function to find index of in lines 959 and 1006. Added 32CH Master on/off.
  *        2.3 05/08/2024 - Added Line 278, with String thisId = device.id
  *        2.4 13/08/2024 - Added singleThreaded: true to metadata definition to fix Alexa Group issue
-
+ *        2.5 17/02/2025 - Added 2CH Board. 
+ *						 - Improved Reconnect function for disconnected board.  
+ *						 - Updated and splitted code for Parsing, Added Status for Online/Offline. Changed Masteron/masteroff speeds and processing.  
+ *						 - Changed Logging defaults. Added BoardStatus State variable and Notification OPtion. 
+ *						 - UPDATE: Added Variable for Check Interval in seconds, 
+ *						 - UPDATE: Added option for enable notifications. 
+ *
+ *
  */
 metadata {
-  definition (name: "MolSmart - Relay 4/8/16/32CH (TCP)", namespace: "TRATO", author: "VH", vid: "generic-contact", singleThreaded: true) {
+  definition (name: "MolSmart - Relay 2/4/8/16/32CH (TCP)", namespace: "TRATO", author: "VH", vid: "generic-contact", singleThreaded: true) {
         capability "Switch"  
         capability "Configuration"
         capability "Initialize"
@@ -41,10 +48,12 @@ metadata {
 
 import groovy.json.JsonSlurper
 import groovy.transform.Field
-command "buscainputcount"
-command "createchilds"
-command "connectionCheck"
-command "ManualKeepAlive"
+//command "buscainputcount"
+//command "createchilds"
+//command "connectionCheck"
+//command "ManualKeepAlive"
+command "queryBoardStatus"
+
 command "masteron"
 command "masteroff"
 //command "clearAllvalues"
@@ -64,9 +73,10 @@ command "masteroff"
         input "device_port", "number", title: "IP Port of Device", required: true, defaultValue: 502
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
         input 'logInfo', 'bool', title: 'Show Info Logs?',  required: false, defaultValue: false
-        input 'logWarn', 'bool', title: 'Show Warning Logs?', required: false, defaultValue: false
         input 'logDebug', 'bool', title: 'Show Debug Logs?', description: 'Only leave on when required', required: false, defaultValue: false
-        input 'logTrace', 'bool', title: 'Show Detailed Logs?', description: 'Only leave on when required', required: false, defaultValue: false
+	    input "checkInterval", "number", title: "Connection Check Interval (seconds)", defaultValue: 90, required: true
+        input "enableNotifications", "bool", title: "Enable Connection Status Notifications", defaultValue: false      
+      
     
     //help guide
     input name: "UserGuide", type: "hidden", title: fmtHelpInfo("Manual do Driver") 
@@ -79,11 +89,12 @@ command "masteroff"
 
 
 @Field static String partialMessage = ''
-@Field static Integer checkInterval = 150
+//@Field static Integer checkInterval = 150
 
 def installed() {
     logTrace('installed()')
     state.childscreated = 0
+    state.boardstatus = "offline"    
     boardstatus = "offline"
     runIn(1800, logsOff)
 } //OK
@@ -95,7 +106,7 @@ def uninstalled() {
 } //OK
 
 def updated() {
-    logTrace('updated()')
+    logTrace('updated()')   
     refresh()
 }
 
@@ -103,41 +114,35 @@ def updated() {
 def ManualKeepAlive (){
     logTrace('ManualKeepAlive()')
     interfaces.rawSocket.close();
-    interfaces.rawSocket.close();
     unschedule()
-    //state.clear()
     
     //Llama la busca de count de inputs+outputs
     buscainputcount()
     
-    try {
-        logTrace("ManualKeepAlive: Tentando conexão com o device no ${device_IP_address}...na porta ${device_port}");
-        interfaces.rawSocket.connect(device_IP_address, (int) device_port);
-        state.lastMessageReceivedAt = now();        
-        runIn(checkInterval, "connectionCheck");
-        if (boardstatus != "online") { 
-            sendEvent(name: "boardstatus", value: "online", isStateChange: true)    
-            boardstatus = "online"
-        }
-        refresh();  // se estava offline, preciso fazer um refresh
-        
+ try {
+        logTrace("Initialize: Tentando conexão com a MolSmart no IP:  ${device_IP_address}...na porta configurada: ${device_port}")
+        interfaces.rawSocket.connect(device_IP_address, (int) device_port)
+        state.lastMessageReceivedAt = now()
+        setBoardStatus("online")
+        runIn(checkInterval, "connectionCheck")
     }
+
     catch (e) {
-        logError( "ManualKeepAlive: ${device_IP_address}  error: ${e.message}" )
-        if (boardstatus != "offline") { 
-            boardstatus = "offline"
-            sendEvent(name: "boardstatus", value: "offline", isStateChange: true)
-        }
-        runIn(60, "initialize");
-    }    
+        logError("Initialize: com ${device_IP_address} com um error: ${e.message}")
+        logError("Problemas na Rede ou Conexão com o Board MolSmart - Verificar IP/PORTA/Rede/Energia")
+        setBoardStatus("offline")
+        def retryDelay = Math.min(300, (state.retryCount ?: 0) * 60) // Exponential backoff, max 5 minutes
+        state.retryCount = (state.retryCount ?: 0) + 1
+        runIn(retryDelay, "initialize") // Retry after calculated delay
+    }
 }
+
 
 
 def initialize() {
     unschedule()
     logTrace('Run Initialize()')
-    interfaces.rawSocket.close();
-    interfaces.rawSocket.close();
+    interfaces.rawSocket.close() // Ensure the socket is closed before reconnecting
     if (!device_IP_address) {
         logError 'IP do Device not configured'
         return
@@ -147,38 +152,44 @@ def initialize() {
         logError 'Porta do Device não configurada.'
         return
     }
-    
+
+    // Reset notification status on initialization
+    //state.lastNotificationStatus = null
+    //state.boardstatus = null
+
+    //setBoardStatus("connecting")
+
     //Llama la busca de count de inputs+outputs via HTTP
     buscainputcount()
     
-    try {
-        logTrace("Initialize: Tentando conexão com o device no ${device_IP_address}...na porta configurada: ${device_port}");
-        interfaces.rawSocket.connect(device_IP_address, (int) device_port);
-        state.lastMessageReceivedAt = now();        
-        if (boardstatus != "online") { 
-            sendEvent(name: "boardstatus", value: "online", isStateChange: true)    
-            boardstatus = "online"
-        }
-        boardstatus = "online"
-        runIn(checkInterval, "connectionCheck");
-        
-    }
-    catch (e) {
-        logError( "Initialize: com ${device_IP_address} com um error: ${e.message}" )
-        boardstatus = "offline"
-        runIn(60, "initialize");
-    }
+    // Query the board for its current relay status
+    queryBoardStatus()
     
-    try{
-         
-          logTrace("Criando childs")
-          createchilds()       
-        
+    try {
+        logTrace("Initialize: Tentando conexão com a MolSmart no IP:  ${device_IP_address}...na porta configurada: ${device_port}")
+        interfaces.rawSocket.connect(device_IP_address, (int) device_port)
+        state.lastMessageReceivedAt = now()
+        setBoardStatus("online")
+        runIn(checkInterval, "connectionCheck")
+    } catch (e) {
+        logError("Initialize: com ${device_IP_address} com um error: ${e.message}")
+        logError("Problemas na Rede ou Conexão com o Board MolSmart - Verificar IP/PORTA/Rede/Energia")
+        setBoardStatus("offline")
+        def retryDelay = Math.min(300, (state.retryCount ?: 0) * 60) // Exponential backoff, max 5 minutes
+        state.retryCount = (state.retryCount ?: 0) + 1
+        runIn(retryDelay, "initialize") // Retry after calculated delay
     }
-    catch (e) {
-        logError( "Error de Initialize: ${e.message}" )
+
+    try {
+        if  (boardstatus == "online") {
+                 logTrace("Go to-> Creating Childs")
+       			 createchilds()
+        }
+
+    } catch (e) {
+        logError("Error de Initialize: ${e.message}")
     }
-    runIn(10, "refresh");
+    runIn(10, "refresh")
 }
 
 
@@ -208,7 +219,7 @@ def createchilds() {
       state.childscreated = 1   
     }
     else {
-        log.info "Childs já foram criados"
+        log.info "Childs previously created. Nothing done"
     }
   
 }
@@ -224,6 +235,9 @@ def buscainputcount(){
                 //Verifica a quantidade de Relays que tem a placa, usando o primeiro digito do 3 caracter do response. (2 ou 4 ou 8 ou 1 ou 3)
                 inputCountV = (resp.data as String)[3] as int
                     
+                if (inputCountV == 2) {
+                    inputCount = 2
+                }
                 if (inputCountV == 4) {
                     inputCount = 4
                 }
@@ -241,16 +255,61 @@ def buscainputcount(){
             }
             else {
                 if (resp.data) logDebug "initialize(): Falha para obter o # de relays ${resp.data}"
+                logError("Failed to fetch relay count: ${resp.status}")
+                runIn(60, "buscainputcount") // Retry after 60 seconds                
             }
   
         }
     } catch (Exception e) {
         log.warn "BuscaInputs-Initialize(): Erro no BuscaInputs: ${e.message}"
+        logError("Error in buscainputcount: ${e.message}")
+        runIn(60, "buscainputcount") // Retry after 60 seconds        
        
     }
          def ipmolsmart = settings.device_IP_address
          state.ipaddress = settings.device_IP_address
 }
+
+
+
+def queryBoardStatus() {
+    try {
+        httpGet("http://${settings.device_IP_address}/relay_cgi_load.cgi") { resp ->
+            if (resp.success) {
+                logDebug "QueryBoardStatus: Fetched relay status: ${resp.data}"
+                
+                // Convert the response to a string
+                def responseText = resp.data.toString()
+                
+                // Split the response by the delimiter '&'
+                def relayStatus = responseText.split('&')
+                
+                if (relayStatus.size() > 2) {
+                    def relayCount = relayStatus[2] as int
+                    for (int i = 1; i <= relayCount; i++) {
+                        def relayNumber = i < 10 ? "0${i}" : "${i}"
+                        def chdid = "${state.netids}${relayNumber}"
+                        def cd = getChildDevice(chdid)
+                        if (cd) {
+                            def status = relayStatus[i + 2] as int
+                            if (status == 1) {
+                                cd.parse([[name: "switch", value: "on", descriptionText: "${cd.displayName} was turned on"]])
+                            } else {
+                                cd.parse([[name: "switch", value: "off", descriptionText: "${cd.displayName} was turned off"]])
+                            }
+                        }
+                    }
+                }
+            } else {
+                logError("Failed to fetch relay status: ${resp.status}")
+            }
+        }
+    } catch (Exception e) {
+        logError("Error in queryBoardStatus: ${e.message}")
+    }
+}
+
+
 
 
 def refresh() {
@@ -275,28 +334,9 @@ def refresh() {
 }
 
 
-def parse(msg) {
-    
-    String thisId = device.id
-    //def cd = getChildDevice("${thisId}-Switch")
-    state.netids = "${thisId}-Switch-"
-	
-    state.lastMessageReceived = new Date(now()).toString();
-    state.lastMessageReceivedAt = now();
-    
-    def newmsg = hubitat.helper.HexUtils.hexStringToByteArray(msg) //na Mol, o resultado vem em HEX, então preciso converter para Array
-    def newmsg2 = new String(newmsg) // Array para String    
-    state.lastmessage = newmsg2
-    
-    log.info "****** New Block LOG Parse ********"
-    log.info "Last Msg: " + newmsg2
-    log.debug "Qde chars = " + newmsg2.length()   
-   
-//START PLACA 4CH 
-    if (state.inputcount == 4) {
-        state.channels = 4
-
-        if ((newmsg2.length() > 43 )) {
+def parse2CH(String newmsg2) {
+    // Handle 2-channel relay parsing
+    if ((newmsg2.length() > 28 )) {
              outputs_changed_1 = newmsg2[12..16]  //changes in relays reported in 1st line of return. Sometimes it returns in first line. 
              outputs_changed_2 = newmsg2[34..37]  //changes in relays reported in 2nd line of return
              outputs_status = newmsg2[22..25]     //status of relays reported in 2nd line of return 
@@ -348,6 +388,116 @@ def parse(msg) {
         } //LENGTH = 44
         
         
+        if ((newmsg2.length() == 14 )) {    
+            
+            outputs_changed = newmsg2[8..9]       
+            inputs_changed = newmsg2[11..12]
+            novaprimeira_output = newmsg2[0..1]
+            novaprimeira_input  = newmsg2[3..5]
+            
+       
+            //Verifico cambios en los RELAYS/OUTPUTS = Vinieron pelo APP;
+               if (outputs_changed.contains("1")) {
+                   relaychanged = outputs_changed.indexOf('1'); 
+                   log.debug ("Yes - change in relay (only) ")
+                   log.debug "outputs_changed relay # = " + relaychanged  
+                                  
+                 z = relaychanged +1 
+                 log.debug "z = " + z
+                 if (z < 10) {     //Verify to add double digits to switch name. 
+                 numerorelay = "0" + Integer.toString(relaychanged+1)
+                 //log.debug "fue menor que 10 = " + numerorelay
+                 }    
+                 else {
+                 numerorelay = Integer.toString(relaychanged+1)
+                 //log.debug "fue mayor que 10 = " + numerorelay    
+                 }  
+                 chdid = state.netids + numerorelay               
+                 def cd = getChildDevice(chdid)
+                 
+                    
+                  //buscar y cambiar el status a ON del switch
+
+                  statusrelay = novaprimeira_output.getAt(relaychanged)
+                  log.debug "statusrelay = " +  statusrelay
+                       switch(statusrelay) { 
+                       case "0": 
+                       log.info "OFF"
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])                               
+                       break      
+                           
+                       case "1": 
+                       log.info "ON" 
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])    
+                       break
+                           
+                       default:
+                       log.info "NADA" 
+                       break
+                           
+                       }
+                   
+               } else {                  
+                       log.info "Placa 2Ch - com feedback de status cada 30 segs - IP " + state.ipaddress
+                       log.info ("No changes reported")
+              }           
+        }
+                 
+}  //END PARSE  PLACA 2CH 
+
+def parse4CH(String newmsg2) {
+    // Handle 4-channel relay parsing
+        if ((newmsg2.length() > 43 )) {
+             outputs_changed_1 = newmsg2[12..16]  //changes in relays reported in 1st line of return. Sometimes it returns in first line. 
+             outputs_changed_2 = newmsg2[34..37]  //changes in relays reported in 2nd line of return
+             outputs_status = newmsg2[22..25]     //status of relays reported in 2nd line of return 
+
+                   if ((outputs_changed_2.contains("1")) || (outputs_changed_1.contains("1"))) {
+                       if (outputs_changed_2.contains("1")) {
+                                relaychanged = outputs_changed_2.indexOf('1'); 
+                           
+                       } else
+                           {
+                                relaychanged = outputs_changed_1.indexOf('1');
+                           }
+                       
+                   log.debug ("Yes - change in Relay (with input)")
+                   log.debug "outputs_changed_2 relay # = " + relaychanged    
+                        
+                 z = relaychanged +1 
+                 if (z < 10) {     //Verify to add double digits to switch name. 
+                 numerorelay = "0" + Integer.toString(relaychanged+1)
+                     
+                 }    
+                
+                 else {
+                 numerorelay = Integer.toString(relaychanged+1)
+                 } 
+                 chdid = state.netids + numerorelay               
+                 def cd = getChildDevice(chdid)
+                 
+                 statusrelay = outputs_status.getAt(relaychanged)
+                       //log.debug "relaychanged  = " +  relaychanged
+                       //log.debug "statusrelay = " +  statusrelay
+                       switch(statusrelay) { 
+                       case "0": 
+                       log.info "OFF"
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])                               
+                       break      
+                           
+                       case "1": 
+                       log.info "ON" 
+                       getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])    
+                       break
+                           
+                       default:
+                       log.info "NADA" 
+                       break
+                           
+                       }
+                 }            
+        } //LENGTH = 44
+
         if ((newmsg2.length() == 22 )) {    
             
             outputs_changed = newmsg2[12..16]       
@@ -355,8 +505,6 @@ def parse(msg) {
             novaprimeira_output = newmsg2[0..3]
             novaprimeira_input  = newmsg2[5..8]
             
-            sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
-            log.debug "Placa MolSmart Online"
        
             //Verifico cambios en los RELAYS/OUTPUTS = Vinieron pelo APP;
                if (outputs_changed.contains("1")) {
@@ -406,25 +554,12 @@ def parse(msg) {
             
         }
      
-     }  //END PLACA 4CH        
-    
-    
-    ///  INPUTS //////
-      /*     //codigo para verificar alteração no input
-             if (inputs_changed.contains("1")) {
-                   log.info ("Yes - change in Input")
-                   inputchanged = inputs_changed.indexOf('1'); 
-                   log.info "inputs_changed input # = " + inputchanged
-             }
-       */   
-    
+     }  //END PLACA 4CH     
 
- //START PLACA 8CH 
-    if (state.inputcount == 8) {
-        state.channels = 8    
-    
-            
-        if ((newmsg2.length() > 75 )) {
+
+def parse8CH(String newmsg2) {
+    // Handle 8-channel relay parsing
+       if ((newmsg2.length() > 75 )) {
              //log.info "Entrou no > 70.."
              
              outputs_changed_1 = newmsg2[20..27]    //changes in relays reported in 1st line of return. Sometimes it returns in first line. 
@@ -490,8 +625,6 @@ def parse(msg) {
             novaprimeira_output = newmsg2[0..7]
             novaprimeira_input  = newmsg2[10..17]
             
-            sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
-            log.debug "Placa MolSmart Online"
        
             //Verifico cambios en los RELAYS/OUTPUTS = Vinieron pelo APP;
                if (outputs_changed.contains("1")) {
@@ -541,17 +674,13 @@ def parse(msg) {
             
         }
      
-     } //END PLACA 8CH
 
-    
-    
-    
- //START PLACA 16CH 
-    if (state.inputcount == 16) {
-        state.channels = 16    
-    
-            
-        if ((newmsg2.length() > 140 )) {
+}  //END PLACA 8CH  
+
+
+def parse16CH(String newmsg2) {
+    // Handle 16-channel relay parsing
+      if ((newmsg2.length() > 140 )) {
              //log.info "Entrou no > 140.."
              
              outputs_changed_1 = newmsg2[37..52]    //changes in relays reported in 1st line of return. Sometimes it returns in first line. 
@@ -620,9 +749,7 @@ def parse(msg) {
             //log.info "novaprimeira_output = " + novaprimeira_output
             novaprimeira_input  = newmsg2[17..32]
             //log.info "novaprimeira_input = " + novaprimeira_input
-         
-            sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
-            log.debug "Placa MolSmart Online"
+       
        
             //Verifico cambios en los RELAYS/OUTPUTS = Vinieron pelo APP;
                if (outputs_changed.contains("1")) {
@@ -671,17 +798,13 @@ def parse(msg) {
               }   
             
         }
-     
-     } //PLACA 16CH
-    
 
- 
- //START PLACA 32CH 
-    if (state.inputcount == 32) {
-        state.channels = 32   
-    
-            
-        if ((newmsg2.length() > 140 )) {
+} //END PLACA 16CH  
+
+def parse32CH(String message) {
+    // Handle 32-channel relay parsing
+
+if ((newmsg2.length() > 140 )) {
              //log.info "Entrou no > 140.."
             
              outputs_changed_1 = newmsg2[69..100]    //changes in relays reported in 1st line of return. Sometimes it returns in first line. 
@@ -747,9 +870,6 @@ def parse(msg) {
             novaprimeira_output = newmsg2[0..31]
             novaprimeira_input  = newmsg2[33..65]
             
-            sendEvent(name: "boardstatus", value: "online", isStateChange: true)        
-            log.debug "Placa MolSmart Online"
-       
             //Verifico cambios en los RELAYS/OUTPUTS = Vinieron pelo APP;
                if (outputs_changed.contains("1")) {
                    relaychanged = outputs_changed.indexOf('1'); 
@@ -798,12 +918,53 @@ def parse(msg) {
             
         }
      
-     } //PLACA 32CH
-    
+     }  //END PLACA 32CH
 
-        
+
+
+
+
+def parse(msg) {
+    
+    String thisId = device.id
+    //def cd = getChildDevice("${thisId}-Switch")
+    state.netids = "${thisId}-Switch-"
+	
+    state.lastMessageReceived = new Date(now()).toString();
+    state.lastMessageReceivedAt = now();
+    
+    def newmsg = hubitat.helper.HexUtils.hexStringToByteArray(msg) //na Mol, o resultado vem em HEX, então preciso converter para Array
+    def newmsg2 = new String(newmsg) // Array para String    
+    state.lastmessage = newmsg2
+    
+    logDebug("****** New Block LOG Parse ********")
+    logDebug("Last Msg: ${newmsg2}")
+    logDebug("Qde chars = ${newmsg2.length()}")
+
+
+    if (state.inputcount == 2) {
+         state.channels = 2
+         parse2CH(newmsg2)
+    } else if (state.inputcount == 4) {
+         state.channels = 4        
+        parse4CH(newmsg2)
+    } else if (state.inputcount == 8) {
+         state.channels = 8
+        parse8CH(newmsg2)
+    } else if (state.inputcount == 16) {
+         state.channels = 16
+        parse16CH(newmsg2)
+    } else if (state.inputcount == 32) {
+         state.channels = 32
+        parse32CH(newmsg2)
+    } else {
+        log.warn "Unknown input count: ${state.inputcount}"
+    }
+  
+     
     
 }
+
 
 
 ////////////////
@@ -814,61 +975,49 @@ def on()
 {
     logDebug("Master Power ON()")
     masteron()
-    //def msg = "1X"
-    //sendCommand(msg)
+
 }
 
 def off()
 {
     logDebug("Master Power OFF()")
     masteroff()
-    //def msg = "2X"
-    //sendCommand(msg)
+
 }
 
 
-def masteron()
-{
-        log.info "MasterON() Executed"  
-        for(int i = 1; i<=state.inputcount; i++) {        
-                if (i < 10) {     //Verify to add double digits to switch name. 
-                numerorelay = "0" + Integer.toString(i)
-                }    
-                else {
-                numerorelay = Integer.toString(i)
-                }     
-    
-                 chdid = state.netids + numerorelay               
-                 def cd = getChildDevice(chdid)
-                 getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${cd.displayName} was turned on"]])    
-                 log.info "Switch " + cd + " turned ON"
-                 on(cd)  
-                 pauseExecution(250)     
-       
+
+def masteron() {
+    logInfo("MasterON() Executed (new)")
+    for (int i = 1; i <= state.inputcount; i++) {
+        def relayNumber = i < 10 ? "0${i}" : "${i}"
+        def chdid = "${state.netids}${relayNumber}"
+        def cd = getChildDevice(chdid)
+        if (cd) {
+            cd.parse([[name: "switch", value: "on", descriptionText: "${cd.displayName} was turned on"]])
+            logInfo("Switch ${cd.displayName} turned ON")
+            on(cd)
+            pauseExecution(200) // Reduced delay
         }
+    }
 }
 
-def masteroff()
-{
-        log.info "MasterOFF() Executed"
-        for(int i = 1; i<=state.inputcount; i++) {        
-                if (i < 10) {     //Verify to add double digits to switch name. 
-                numerorelay = "0" + Integer.toString(i)
-                }    
-                else {
-                numerorelay = Integer.toString(i)
-                }     
-    
-                 chdid = state.netids + numerorelay               
-                 def cd = getChildDevice(chdid)
-                 getChildDevice(cd.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${cd.displayName} was turned off"]])    
-                 log.info "Switch " + cd + " turned OFF"
-                 off(cd)  
-                 pauseExecution(250)     
-       
+
+
+def masteroff() {
+    logInfo("MasterOFF() Executed (new)")
+    for (int i = 1; i <= state.inputcount; i++) {
+        def relayNumber = i < 10 ? "0${i}" : "${i}"
+        def chdid = "${state.netids}${relayNumber}"
+        def cd = getChildDevice(chdid)
+        if (cd) {
+            cd.parse([[name: "switch", value: "off", descriptionText: "${cd.displayName} was turned off"]])
+            logInfo("Switch ${cd.displayName} turned OFF")
+            off(cd)
+            pauseExecution(200) // Reduced delay
         }
+    }
 }
-
 
 
 private sendCommand(s) {
@@ -881,41 +1030,78 @@ private sendCommand(s) {
 //// Connections Checks ////
 ////////////////////////////
 
-def connectionCheck() {
-    def now = now();
-    
-    if ( now - state.lastMessageReceivedAt > (checkInterval * 1000)) { 
-        logError("ConnectionCheck:Sem mensagens desde ${(now - state.lastMessageReceivedAt)/60000} minutos, vamos tentar reconectar ...");
-        if (boardstatus != "offline") { 
-            sendEvent(name: "boardstatus", value: "offline", isStateChange: true)    
-            boardstatus = "offline"
-        }
-        runIn(30, "connectionCheck");
-        initialize();
-    }
-    else {
-        logInfo("Connection Check: Status OK - Board Online");
-        if (boardstatus != "online") { 
-            sendEvent(name: "boardstatus", value: "online", isStateChange: true)    
-            boardstatus = "online"
-        }
-        runIn(checkInterval, "connectionCheck");
+
+
+def sendNotification(String message) {
+    if (settings.enableNotifications) {
+        sendPush(message)
     }
 }
 
 
 
-//Socket Status - NOT USED. 
+def connectionCheck() {
+    def now = now()
+    def timeSinceLastMessage = now - state.lastMessageReceivedAt
 
-def socketStatus(String message) {
-    if (message == "receive error: String index out of range: -1") {
-        // This is some error condition that repeats every 15ms.
-        interfaces.rawSocket.close();       
-        logError( "socketStatus: ${message}");
-        logError( "Closing connection to device" );
+    if (timeSinceLastMessage > (checkInterval * 1000)) {
+        logError("ConnectionCheck: No messages received for ${timeSinceLastMessage / 1000} seconds. Attempting to reconnect...")
+        
+        // Set board status to offline
+        if (boardstatus != "offline") {
+            setBoardStatus("offline")  // This will handle the notification
+        }
+
+        // Attempt immediate reconnection
+        initialize()
+
+        // Schedule the next connection check with exponential backoff
+        def retryCount = state.retryCount ?: 0
+        def retryDelay = Math.min(300, (retryCount + 1) * 60) // Exponential backoff, max 5 minutes
+        state.retryCount = retryCount + 1
+        runIn(retryDelay, "connectionCheck")
+    } else {
+        logInfo("Connection Check: Status OK - Board Online")
+        
+        // Reset retry count if connection is stable
+        state.retryCount = 0
+
+        if (boardstatus != "online") {
+            setBoardStatus("online")  // This will handle the notification
+        }
+
+        // Schedule the next connection check
+        runIn(checkInterval, "connectionCheck")
     }
-    else if (message != "receive error: Read timed out") {
-        logError( "socketStatus: ${message}")
+}
+
+def setBoardStatus(String status) {
+    if (state.boardstatus != status) {
+
+        	boardstatus = status
+            state.boardstatus = status
+            if (status == "online" || status == "offline") {
+            sendEvent(name: "boardstatus", value: status, isStateChange: true)
+            
+        }
+        
+        // Check if a notification has already been sent for this status
+        if (state.lastNotificationStatus != status) {
+            //log.info "Status Antigo = " + state.lastNotificationStatus + "Novo : " + status
+            state.lastNotificationStatus = status  // Update the last notification status
+            
+              if (status == "online") {
+                logInfo("MolSmart Board is now online.")  // Log message for online
+                if (settings.enableNotifications) {
+                    sendPush("MolSmart Board is now online.")  // Send notification
+                }
+            } else if (status == "offline") {
+                logInfo("MolSmart Board is now offline.") // Log message for offline
+                if (settings.enableNotifications) {
+                    sendPush("MolSmart Board is now offline.") // Send notification
+                }
+            }
+        }
     }
 }
 
@@ -1053,7 +1239,9 @@ def logsOff() {
     device.updateSetting('logWarn', [value:'false', type:'bool'])
     device.updateSetting('logDebug', [value:'false', type:'bool'])
     device.updateSetting('logTrace', [value:'false', type:'bool'])
+    device.updateSetting('logEnable', [value:'false', type:'bool'])
 }
+
 
 void logDebug(String msg) {
     if ((Boolean)settings.logDebug != false) {
