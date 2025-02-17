@@ -801,7 +801,7 @@ def parse16CH(String newmsg2) {
 
 } //END PLACA 16CH  
 
-def parse32CH(String message) {
+def parse32CH(String newmsg2) {
     // Handle 32-channel relay parsing
 
 if ((newmsg2.length() > 140 )) {
