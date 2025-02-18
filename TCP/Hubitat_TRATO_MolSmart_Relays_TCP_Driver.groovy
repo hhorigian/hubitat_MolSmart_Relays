@@ -40,7 +40,7 @@
 metadata {
   definition (name: "MolSmart - Relay 2/4/8/16/32CH (TCP)", namespace: "TRATO", author: "VH", vid: "generic-contact", singleThreaded: true) {
         capability "Switch"  
-        capability "Configuration"
+        //capability "Configuration"
         capability "Initialize"
         capability "Refresh"       
   }
