@@ -52,7 +52,7 @@ import groovy.transform.Field
 //command "createchilds"
 //command "connectionCheck"
 //command "ManualKeepAlive"
-command "queryBoardStatus"
+//command "queryBoardStatus"
 
 command "masteron"
 command "masteroff"
