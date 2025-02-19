@@ -1,10 +1,10 @@
 {
  "packageName":"MolSmart - Relay 2/4/8/16/32CH (TCP)",
  "author":"Vartan Horigian",
- "version":"2.5",
+ "version":"2.6",
  "minimumHEVersion":"2.3.7.100",
- "dateReleased":"2025-02-17",
- "releaseNotes":"Added 2CH and other performance adds, online/offline notification.",
+ "dateReleased":"2025-02-19",
+ "releaseNotes":"2.6 17/02/2025 - Fixed Return Inputs for 2CH Board",
  "drivers": [
   {
      "id":"b345c769-c877-46f5-b066-50e92d3bd051",
