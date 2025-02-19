@@ -34,8 +34,8 @@
  *						 - Changed Logging defaults. Added BoardStatus State variable and Notification OPtion. 
  *						 - UPDATE: Added Variable for Check Interval in seconds, 
  *						 - UPDATE: Added option for enable notifications. 
- *
- *
+ *        2.6 17/02/2025 - Fixed Return Inputs for 2CH Board. 
+*
  */
 metadata {
   definition (name: "MolSmart - Relay 2/4/8/16/32CH (TCP)", namespace: "TRATO", author: "VH", vid: "generic-contact", singleThreaded: true) {
@@ -336,11 +336,15 @@ def refresh() {
 
 def parse2CH(String newmsg2) {
     // Handle 2-channel relay parsing
-    if ((newmsg2.length() > 28 )) {
-             outputs_changed_1 = newmsg2[12..16]  //changes in relays reported in 1st line of return. Sometimes it returns in first line. 
-             outputs_changed_2 = newmsg2[34..37]  //changes in relays reported in 2nd line of return
-             outputs_status = newmsg2[22..25]     //status of relays reported in 2nd line of return 
-
+    if ((newmsg2.length() >= 28 )) {
+             outputs_changed_1 = newmsg2[8..9]   //changes in relays reported in 1st line of return. Sometimes it returns in first line. 
+             outputs_changed_2 = newmsg2[22..23]  //changes in relays reported in 2nd line of return
+             outputs_status = newmsg2[22..23]     //status of relays reported in 2nd line of return 
+			log.debug "out1=" + outputs_changed_1
+        	log.debug "out2=" + outputs_changed_2
+            log.debug "outstatus=" + outputs_status
+        
+        
                    if ((outputs_changed_2.contains("1")) || (outputs_changed_1.contains("1"))) {
                        if (outputs_changed_2.contains("1")) {
                                 relaychanged = outputs_changed_2.indexOf('1'); 
@@ -352,8 +356,12 @@ def parse2CH(String newmsg2) {
                        
                    log.debug ("Yes - change in Relay (with input)")
                    log.debug "outputs_changed_2 relay # = " + relaychanged    
+                   log.debug "relaychanged = " + relaychanged
                         
-                 z = relaychanged +1 
+                    z = relaychanged -1        
+                   //z = relaychanged +1 -- change 19/2/2025
+                   //log.debug "z = " + z
+
                  if (z < 10) {     //Verify to add double digits to switch name. 
                  numerorelay = "0" + Integer.toString(relaychanged+1)
                      
@@ -362,12 +370,13 @@ def parse2CH(String newmsg2) {
                  else {
                  numerorelay = Integer.toString(relaychanged+1)
                  } 
+                 log.debug "numerorelay: " + numerorelay
                  chdid = state.netids + numerorelay               
                  def cd = getChildDevice(chdid)
                  
                  statusrelay = outputs_status.getAt(relaychanged)
                        //log.debug "relaychanged  = " +  relaychanged
-                       //log.debug "statusrelay = " +  statusrelay
+                       //log.debug "statusrelay= " +  statusrelay
                        switch(statusrelay) { 
                        case "0": 
                        log.info "OFF"
@@ -403,7 +412,7 @@ def parse2CH(String newmsg2) {
                    log.debug "outputs_changed relay # = " + relaychanged  
                                   
                  z = relaychanged +1 
-                 log.debug "z = " + z
+                 //log.debug "z = " + z
                  if (z < 10) {     //Verify to add double digits to switch name. 
                  numerorelay = "0" + Integer.toString(relaychanged+1)
                  //log.debug "fue menor que 10 = " + numerorelay
@@ -419,7 +428,7 @@ def parse2CH(String newmsg2) {
                   //buscar y cambiar el status a ON del switch
 
                   statusrelay = novaprimeira_output.getAt(relaychanged)
-                  log.debug "statusrelay = " +  statusrelay
+                  //log.debug "statusrelay value (0=off/1=on) = " +  statusrelay
                        switch(statusrelay) { 
                        case "0": 
                        log.info "OFF"
