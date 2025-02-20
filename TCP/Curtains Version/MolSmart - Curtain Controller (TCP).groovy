@@ -8,11 +8,18 @@
  *
  *      http://www.apache.org/licenses/LICENSE-2.0
  *
+ *		Driver para utilizar os módulos da MolSmart em Modo de Cortina. (Relay 1 + Relay 2 = Cortina 1.  Relay 3 + Relay 4 = Cortina 2, etc. )
+ *
+ * 	
+ *
+ *      1.0 21/2/2025  - V.BETA 1. Com Variável na configuração para Tempo para automaticamente parar o UP/DOWN. 
+ * 		
  */
 
 metadata {
-  definition (name: "MolSmart - Curtain Controller (TCP)", namespace: "VH", author: "VH", vid: "generic-contact", singleThreaded: true) {
+  definition (name: "MolSmart - Curtain Controller", namespace: "TRATO", author: "VH", vid: "generic-contact", singleThreaded: true) {
     capability "Switch"  
+    capability "Configuration"
     capability "Initialize"
     capability "Refresh"       
   }
@@ -21,14 +28,13 @@ metadata {
 import groovy.json.JsonSlurper
 import groovy.transform.Field
 
-command "queryBoardStatus"
+
 command "masteron"
 command "masteroff"
 command "stop"
 
-
 @Field static final String DRIVER = "by TRATO"
-@Field static final String USER_GUIDE = "https://github.com/hhorigian/"
+@Field static final String USER_GUIDE = "https://github.com/hhorigian/hubitat_MolSmart_Relays/tree/main/TCP"
 
 String fmtHelpInfo(String str) {
     String prefLink = "<a href='${USER_GUIDE}' target='_blank'>${str}<br><div style='font-size: 70%;'>${DRIVER}</div></a>"
@@ -42,14 +48,16 @@ preferences {
     input 'logInfo', 'bool', title: 'Show Info Logs?',  required: false, defaultValue: false
     input 'logDebug', 'bool', title: 'Show Debug Logs?', description: 'Only leave on when required', required: false, defaultValue: false
     input "checkInterval", "number", title: "Connection Check Interval (seconds)", defaultValue: 90, required: true
-    input "enableNotifications", "bool", title: "Enable Connection Status Notifications", defaultValue: false  
-    input "stopTime", "number", title: "Stop Time (seconds)", description: "Time in seconds before stopping the curtains", defaultValue: 10, required: true    
+    input "enableNotifications", "bool", title: "Enable Connection Status Notifications", defaultValue: false      
+    input "stopTime", "number", title: "Stop Time (seconds)", description: "Time in seconds before stopping the curtains", defaultValue: 10, required: true
     
     //help guide
     input name: "UserGuide", type: "hidden", title: fmtHelpInfo("Manual do Driver") 
 
-    attribute "powerstatus", "string"
     attribute "boardstatus", "string"
+	attribute "curtainStatus", "string"
+    
+    
 }
 
 @Field static String partialMessage = ''
@@ -74,7 +82,6 @@ def updated() {
 }
 
 def initialize() {
-//  state.childscreated = 0
     unschedule()
     logTrace('Run Initialize()')
     interfaces.rawSocket.close() // Ensure the socket is closed before reconnecting
@@ -92,13 +99,11 @@ def initialize() {
     //state.lastNotificationStatus = null
     //state.boardstatus = null
 
-    //setBoardStatus("connecting")
-
     //Llama la busca de count de inputs+outputs via HTTP
     buscainputcount()
     
     // Query the board for its current relay status
-    queryBoardStatus()
+    //queryBoardStatus()
     
     try {
         logTrace("Initialize: Tentando conexão com a MolSmart no IP:  ${device_IP_address}...na porta configurada: ${device_port}")
@@ -116,25 +121,23 @@ def initialize() {
     }
 
     try {
-        if  (boardstatus == "online") {
-                 logTrace("Go to-> Creating Childs")
-       			 createchilds()
-        }
+        
 
     } catch (e) {
         logError("Error de Initialize: ${e.message}")
     }
+    // Create child devices if not already created
+    if (state.childscreated == 0) {
+        createchilds()
+    }
     runIn(10, "refresh")
 }
-
-
-
 
 def createchilds() {
     String thisId = device.id
     def cd = getChildDevice("${thisId}-Curtain")
     state.netids = "${thisId}-Curtain-"
-    
+    log.debug "Dentro do CreateChilds. Childscreated = " + state.childscreated
     if (state.childscreated == 0) {
         if (!cd) {
             log.info "Inputcount = " + state.inputcount 
@@ -145,6 +148,8 @@ def createchilds() {
                     numerocurtain = Integer.toString(i)
                 }             
                 cd = addChildDevice("hubitat", "Generic Component Switch", "${thisId}-Curtain-" + numerocurtain, [name: "${device.displayName} Curtain-" + numerocurtain , isComponent: true])
+                // Add the stop command capability to the child device
+                cd.sendEvent(name: "supportedCommands", value: ["on", "off", "stop"], isStateChange: true)                             
                 log.info "added curtain # " + i + " from " + state.inputcount/2            
             }
         }
@@ -200,48 +205,6 @@ def buscainputcount(){
 }
 
 
-def queryBoardStatus() {
-    try {
-        httpGet("http://${settings.device_IP_address}/relay_cgi_load.cgi") { resp ->
-            if (resp.success) {
-                logDebug "QueryBoardStatus: Fetched relay status: ${resp.data}"
-                
-                // Convert the response to a string
-                def responseText = resp.data.toString()
-                
-                // Split the response by the delimiter '&'
-                def relayStatus = responseText.split('&')
-                
-                if (relayStatus.size() > 2) {
-                    def relayCount = relayStatus[2] as int
-                    for (int i = 1; i <= relayCount/2; i++) {
-                        def curtainNumber = i < 10 ? "0${i}" : "${i}"
-                        def chdid = "${state.netids}${curtainNumber}"
-                        def cd = getChildDevice(chdid)
-                        if (cd) {
-                            def upRelayStatus = relayStatus[(i*2)-1] as int
-                            def downRelayStatus = relayStatus[i*2] as int
-                            if (upRelayStatus == 1) {
-                                cd.parse([[name: "switch", value: "up", descriptionText: "${cd.displayName} was moved up"]])
-                            } else if (downRelayStatus == 1) {
-                                cd.parse([[name: "switch", value: "down", descriptionText: "${cd.displayName} was moved down"]])
-                            } else {
-                                cd.parse([[name: "switch", value: "off", descriptionText: "${cd.displayName} was stopped"]])
-                            }
-                        }
-                    }
-                }
-            } else {
-                logError("Failed to fetch relay status: ${resp.status}")
-            }
-        }
-    } catch (Exception e) {
-        logError("Error in queryBoardStatus: ${e.message}")
-    }
-}
-
-
-
 def refresh() {
     logInfo('Refresh()')
     def msg = "REFRESH"    
@@ -249,52 +212,92 @@ def refresh() {
 }
 
 def parse(String msg) {
-    String thisId = device.id
-    state.netids = "${thisId}-Curtain-"
-    
+
     state.lastMessageReceived = new Date(now()).toString();
     state.lastMessageReceivedAt = now();
     
     def newmsg = hubitat.helper.HexUtils.hexStringToByteArray(msg) //na Mol, o resultado vem em HEX, então preciso converter para Array
     def newmsg2 = new String(newmsg) // Array para String    
+ 
     state.lastmessage = newmsg2
+ 	def parts = state.lastmessage
     
-    logDebug("****** New Block LOG Parse ********")
-    logDebug("Last Msg: ${newmsg2}")
-    logDebug("Qde chars = ${newmsg2.length()}")
+	parts = parts.split(':')
+	//log.debug "parts.size= " + parts.size()
+    if (parts.size() >= 5) {
+        def relayStatus = parts[0] // Relay status part
+        def inputStatus = parts[1] // Input status part (not used here)
+        def channelCount = parts[2] as int // Number of channels
+        def lastUpdates = parts[3] // Last updates (not used here)
+        def relayStatus2 = parts[4] // Relay status part (not used here)
 
-    if (state.inputcount == 2) {
-        state.channels = 2
-        parse2CH(newmsg2)
-    } else if (state.inputcount == 4) {
-        state.channels = 4        
-        parse4CH(newmsg2)
-    } else if (state.inputcount == 8) {
-        state.channels = 8
-        //parse8CH(newmsg2)
-    } else if (state.inputcount == 16) {
-        state.channels = 16
-        parse16CH(newmsg2)
-    } else if (state.inputcount == 32) {
-        state.channels = 32
-        parse32CH(newmsg2)
-    } else {
-        log.warn "Unknown input count: ${state.inputcount}"
+       
+        if (lastUpdates.contains("1")) {
+        relaychanged =lastUpdates.indexOf('1'); 
+        
+        
+        
+        // Update child devices based on relay status
+        for (int i = 1; i <= channelCount; i++) {
+            def curtainNumber = i < 10 ? "0${i}" : "${i}"
+            def chdid = "${state.netids}${curtainNumber}"
+            def cd = getChildDevice(chdid)
+            if (cd) {
+                def upRelayStatus = relayStatus[(i*2)-2] as int // Relay for "up" (odd relay)
+                def downRelayStatus = relayStatus[(i*2)-1] as int // Relay for "down" (even relay)
+                log.debug "upRelayStatus = " + upRelayStatus
+                log.debug "downRelayStatus = " + downRelayStatus    
+                    
+                 if (upRelayStatus == 1) {
+                        cd.parse([[name: "switch", value: "up", descriptionText: "${cd.displayName} was moved up"]])
+                        cd.sendEvent(name: "curtainStatus", value: "up", isStateChange: true)
+                    } else if (downRelayStatus == 1) {
+                        cd.parse([[name: "switch", value: "down", descriptionText: "${cd.displayName} was moved down"]])
+                        cd.sendEvent(name: "curtainStatus", value: "down", isStateChange: true)
+                    } else {
+                        cd.parse([[name: "switch", value: "stop", descriptionText: "${cd.displayName} was stopped"]])
+                        cd.sendEvent(name: "curtainStatus", value: "stop", isStateChange: true)
+                    }
+                }
+            }
+        } else {
+        logInfo("Curtain: No Changes - Nothing to update")
+    }
+    
+        }
+    
+    
+}
+
+
+
+def updateChildStatus(int curtainNumber, String upRelayStatus, String downRelayStatus) {
+    def chdid = "${state.netids}${curtainNumber < 10 ? "0${curtainNumber}" : "${curtainNumber}"}"
+    def cd = getChildDevice(chdid)
+    if (cd) {
+        if (upRelayStatus == "1") {
+            cd.parse([[name: "switch", value: "up", descriptionText: "${cd.displayName} was moved up"]])
+        } else if (downRelayStatus == "1") {
+            cd.parse([[name: "switch", value: "down", descriptionText: "${cd.displayName} was moved down"]])
+        } else {
+            cd.parse([[name: "switch", value: "stop", descriptionText: "${cd.displayName} was stopped"]])
+        }
     }
 }
 
+
 def on() {
-    logDebug("Master Cortinas UP()")
+    logDebug("Master Power ON()")
     masteron()
 }
 
 def off() {
-    logDebug("Master Cortinas DOWN()")
+    logDebug("Master Power OFF()")
     masteroff()
 }
 
 def masteron() {
-    logInfo("MasterUP() Executado ")
+    logInfo("MasterON() Executed (new)")
     for (int i = 1; i <= state.inputcount/2; i++) {
         def curtainNumber = i < 10 ? "0${i}" : "${i}"
         def chdid = "${state.netids}${curtainNumber}"
@@ -309,7 +312,7 @@ def masteron() {
 }
 
 def masteroff() {
-    logInfo("MasterDOWN() Executado ")
+    logInfo("MasterOFF() Executed (new)")
     for (int i = 1; i <= state.inputcount/2; i++) {
         def curtainNumber = i < 10 ? "0${i}" : "${i}"
         def chdid = "${state.netids}${curtainNumber}"
@@ -322,8 +325,6 @@ def masteroff() {
         }
     }
 }
-
-
 
 private sendCommand(s) {
     logDebug("sendCommand ${s}")
@@ -339,211 +340,118 @@ def sendNotification(String message) {
 def connectionCheck() {
     def now = now()
     def timeSinceLastMessage = now - state.lastMessageReceivedAt
-
     if (timeSinceLastMessage > (checkInterval * 1000)) {
         logError("ConnectionCheck: No messages received for ${timeSinceLastMessage / 1000} seconds. Attempting to reconnect...")
         
+        // Set board status to offline
         if (boardstatus != "offline") {
-            setBoardStatus("offline")
+            setBoardStatus("offline")  // This will handle the notification
         }
 
+        // Attempt immediate reconnection
         initialize()
 
+        // Schedule the next connection check with exponential backoff
         def retryCount = state.retryCount ?: 0
-        def retryDelay = Math.min(300, (retryCount + 1) * 60)
+        def retryDelay = Math.min(300, (retryCount + 1) * 60) // Exponential backoff, max 5 minutes
         state.retryCount = retryCount + 1
         runIn(retryDelay, "connectionCheck")
     } else {
         logInfo("Connection Check: Status OK - Board Online")
         
+        // Reset retry count if connection is stable
         state.retryCount = 0
 
         if (boardstatus != "online") {
-            setBoardStatus("online")
+            setBoardStatus("online")  // This will handle the notification
         }
 
+        // Schedule the next connection check
         runIn(checkInterval, "connectionCheck")
     }
 }
 
 def setBoardStatus(String status) {
     if (state.boardstatus != status) {
+
+        sendEvent(name: "boardstatus", value: status, isStateChange: true)
         boardstatus = status
         state.boardstatus = status
-        if (status == "online" || status == "offline") {
-            sendEvent(name: "boardstatus", value: status, isStateChange: true)
-        }
         
+        // Check if a notification has already been sent for this status
         if (state.lastNotificationStatus != status) {
-            state.lastNotificationStatus = status
-            
+            state.lastNotificationStatus = status  // Update the last notification status
             if (status == "online") {
-                logInfo("MolSmart Board is now online.")
+                logInfo("MolSmart Board is now online.")  // Log message for online
                 if (settings.enableNotifications) {
-                    sendPush("MolSmart Board is now online.")
+                    sendPush("MolSmart Board is now online.")  // Send notification
                 }
             } else if (status == "offline") {
-                logInfo("MolSmart Board is now offline.")
+                logInfo("MolSmart Board is now offline.") // Log message for offline
                 if (settings.enableNotifications) {
-                    sendPush("MolSmart Board is now offline.")
+                    sendPush("MolSmart Board is now offline.") // Send notification
                 }
             }
         }
     }
 }
 
+
 void componentRefresh(cd){
     if (logEnable) log.info "received refresh request from ${cd.displayName}"
     refresh()
 }
 
-void componentOn(cd) {
+void componentOn(cd){
     if (logEnable) log.info "received on request from ${cd.displayName}"
     on(cd)
 }
 
-void componentOff(cd) {
+void componentOff(cd){
     if (logEnable) log.info "received off request from ${cd.displayName}"
     off(cd)
 }
 
-void componentStop(cd) {
+void componentStop(cd){
     if (logEnable) log.info "received stop request from ${cd.displayName}"
     stop(cd)
 }
+
+
 
 void on(cd) {
-    sendEvent(name: "switch", value: "up", isStateChange: true)
-    ipdomodulo  = state.ipaddress
-    lengthvar =  (cd.deviceNetworkId.length())
-    int relay = 0
-    def substr1 = cd.deviceNetworkId.indexOf("-", cd.deviceNetworkId.indexOf("-") + 1);
-    def result01 = lengthvar - substr1 
-    if (result01 > 2  ) {
-        def  substr2a = substr1 + 1
-        def  substr2b = substr1 + 2
-        def substr3 = cd.deviceNetworkId[substr2a..substr2b]
-        numervalue1 = substr3
-    } else {
-        def substr3 = cd.deviceNetworkId[substr1+1]
-        numervalue1 = substr3
-    }
-
-    def valor = ""
-    valor =   numervalue1 as Integer
-    relay = valor   
-
-    // Calculate the "up" relay (e.g., Curtain 1 -> Relay1, Curtain 2 -> Relay3, etc.)
+    def relay = getRelayNumber(cd)
     def upRelay = (relay * 2) - 1
-
-    // Calculate the "down" relay (e.g., Curtain 1 -> Relay2, Curtain 2 -> Relay4, etc.)
-    def downRelay = relay * 2
-
-    // Send command to activate the "up" relay
-    def comandoUp = "1" + upRelay
-    interfaces.rawSocket.sendMessage(comandoUp)
-    log.info "Send command UP to relay ${upRelay} = " + comandoUp
-
-    // Send command to deactivate the "down" relay
-    def comandoDown = "2" + downRelay
-    interfaces.rawSocket.sendMessage(comandoDown)
-    log.info "Send command DOWN to relay ${downRelay} = " + comandoDown
-
-    // Schedule the stop command after the specified stopTime
-    runIn(settings.stopTime, "stop", [data: cd])
+    sendCommand("1${upRelay}") // Command to turn on the "up" relay
+    logInfo("Curtain ${cd.displayName} moved UP")
+    runIn(settings.stopTime, "stop", [data: cd]) // Schedule stop after stopTime
 }
-
-
-
-void componentStop(cd) {
-    if (logEnable) log.info "received stop request from ${cd.displayName}"
-    stop(cd)
-}
-
-
-void stop(cd) {
-    sendEvent(name: "switch", value: "off", isStateChange: true)
-    ipdomodulo  = state.ipaddress
-    lengthvar =  (cd.deviceNetworkId.length())
-    int relay = 0
-    def substr1 = cd.deviceNetworkId.indexOf("-", cd.deviceNetworkId.indexOf("-") + 1);
-    def result01 = lengthvar - substr1 
-    if (result01 > 2  ) {
-        def  substr2a = substr1 + 1
-        def  substr2b = substr1 + 2
-        def substr3 = cd.deviceNetworkId[substr2a..substr2b]
-        numervalue1 = substr3
-    } else {
-        def substr3 = cd.deviceNetworkId[substr1+1]
-        numervalue1 = substr3
-    }
-
-    def valor = ""
-    valor =   numervalue1 as Integer
-    relay = valor   
-
-    // Calculate the "up" relay (e.g., Curtain 1 -> Relay1, Curtain 2 -> Relay3, etc.)
-    def upRelay = (relay * 2) - 1
-
-    // Calculate the "down" relay (e.g., Curtain 1 -> Relay2, Curtain 2 -> Relay4, etc.)
-    def downRelay = relay * 2
-
-    // Send command to deactivate the "up" relay
-    def comandoUp = "2" + upRelay
-    interfaces.rawSocket.sendMessage(comandoUp)
-    log.info "Send command STOP to relay ${upRelay} = " + comandoUp
-
-    // Send command to deactivate the "down" relay
-    def comandoDown = "2" + downRelay
-    interfaces.rawSocket.sendMessage(comandoDown)
-    log.info "Send command STOP to relay ${downRelay} = " + comandoDown
-}
-
-
-
 
 void off(cd) {
-    sendEvent(name: "switch", value: "down", isStateChange: true)
-    ipdomodulo  = state.ipaddress
-    lengthvar =  (cd.deviceNetworkId.length())
-    int relay = 0
-    def substr1 = cd.deviceNetworkId.indexOf("-", cd.deviceNetworkId.indexOf("-") + 1);
-    def result01 = lengthvar - substr1 
-    if (result01 > 2  ) {
-        def  substr2a = substr1 + 1
-        def  substr2b = substr1 + 2
-        def substr3 = cd.deviceNetworkId[substr2a..substr2b]
-        numervalue1 = substr3
-    } else {
-        def substr3 = cd.deviceNetworkId[substr1+1]
-        numervalue1 = substr3
-    }
-
-    def valor = ""
-    valor =   numervalue1 as Integer
-    relay = valor   
-
-    // Calculate the "up" relay (e.g., Curtain 1 -> Relay1, Curtain 2 -> Relay3, etc.)
-    def upRelay = (relay * 2) - 1
-
-    // Calculate the "down" relay (e.g., Curtain 1 -> Relay2, Curtain 2 -> Relay4, etc.)
+    def relay = getRelayNumber(cd)
     def downRelay = relay * 2
-
-    // Send command to activate the "down" relay
-    def comandoDown = "1" + downRelay
-    interfaces.rawSocket.sendMessage(comandoDown)
-    log.info "Send command DOWN to relay ${downRelay} = " + comandoDown
-
-    // Send command to deactivate the "up" relay
-    def comandoUp = "2" + upRelay
-    interfaces.rawSocket.sendMessage(comandoUp)
-    log.info "Send command UP to relay ${upRelay} = " + comandoUp
-
-    // Schedule the stop command after the specified stopTime
-    runIn(settings.stopTime, "stop", [data: cd])
+    sendCommand("1${downRelay}") // Command to turn on the "down" relay
+    logInfo("Curtain ${cd.displayName} moved DOWN")
+    runIn(settings.stopTime, "stop", [data: cd]) // Schedule stop after stopTime
 }
 
+void stop(cd) {
+    def relay = getRelayNumber(cd)
+    def upRelay = (relay * 2) - 1
+    def downRelay = relay * 2
+    sendCommand("2${upRelay}") // Command to turn off the "up" relay
+    sendCommand("2${downRelay}") // Command to turn off the "down" relay
+    logInfo("Curtain ${cd.displayName} was stopped")
+    sendEvent(name: "curtainStatus", value: "stop", isStateChange: false)
+    
+}
 
+private getRelayNumber(cd) {
+    def substr1 = cd.deviceNetworkId.indexOf("-", cd.deviceNetworkId.indexOf("-") + 1)
+    def result01 = cd.deviceNetworkId.length() - substr1
+    def numervalue1 = result01 > 2 ? cd.deviceNetworkId[substr1+1..substr1+2] : cd.deviceNetworkId[substr1+1]
+    return numervalue1 as Integer
+}
 
 private processEvent( Variable, Value ) {
     if ( state."${ Variable }" != Value ) {
@@ -552,7 +460,6 @@ private processEvent( Variable, Value ) {
         sendEvent( name: "${ Variable }", value: Value, isStateChanged: true )
     }
 }
-
 
 void logDebug(String msg) {
     if ((Boolean)settings.logDebug != false) {
