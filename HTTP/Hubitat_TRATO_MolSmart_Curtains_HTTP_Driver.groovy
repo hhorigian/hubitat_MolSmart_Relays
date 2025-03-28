@@ -13,7 +13,7 @@
  * 	
  *
  *      1.0 21/2/2025  - V.BETA 1. Com Variável na configuração para Tempo para automaticamente parar o UP/DOWN. 
- *      1.1 [Date]     - Updated to use HTTP commands instead of TCP
+ *      1.1 28/3/2025  - Updated to use HTTP commands instead of TCP
  */
 
 metadata {
