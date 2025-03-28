@@ -1,3 +1,12 @@
+Hubitat
+Dev
+
+Res
+C8-PRO-DEMO
+Drivers code
+MolSmart - Curtain Controller
+Indent
+Wrap
 /**
  *  Hubitat - TCP MolSmart Curtain Controller Drivers by VH - 
  *
@@ -32,6 +41,7 @@ import groovy.transform.Field
 command "masteron"
 command "masteroff"
 command "stop"
+command "createchilds"
 
 @Field static final String DRIVER = "by TRATO"
 @Field static final String USER_GUIDE = "https://github.com/hhorigian/hubitat_MolSmart_Relays/tree/main/TCP"
@@ -67,7 +77,7 @@ def installed() {
     state.childscreated = 0
     state.boardstatus = "offline"    
     boardstatus = "offline"
-    runIn(1800, logsOff)
+    //runIn(1800, logsOff)
 }
 
 def uninstalled() {
@@ -78,10 +88,12 @@ def uninstalled() {
 
 def updated() {
     logTrace('updated()')   
-    refresh()
+    //state.childscreated= null 
+     refresh()
 }
 
 def initialize() {
+  
     unschedule()
     logTrace('Run Initialize()')
     interfaces.rawSocket.close() // Ensure the socket is closed before reconnecting
@@ -121,19 +133,23 @@ def initialize() {
     }
 
     try {
-        
+        if  (boardstatus == "online") {
+                 logTrace("Go to-> Creating Childs")
+       			 createchilds()
+        }
 
     } catch (e) {
         logError("Error de Initialize: ${e.message}")
     }
     // Create child devices if not already created
-    if (state.childscreated == 0) {
-        createchilds()
-    }
+    
+    
+    
     runIn(10, "refresh")
 }
 
 def createchilds() {
+     // state.childscreated = 0
     String thisId = device.id
     def cd = getChildDevice("${thisId}-Curtain")
     state.netids = "${thisId}-Curtain-"
@@ -162,7 +178,7 @@ def createchilds() {
 //Conta os inputs/relays, via HTTP. 
 def buscainputcount(){
     try {
-        httpGet("http://" + settings.device_IP_address + "/relay_cgi_load.cgi") { resp ->
+        httpGet("https://" + settings.device_IP_address + "/relay_cgi_load.cgi") { resp ->
             if (resp.success) {
                 logDebug "Buscainputcount: Busquei o numero de relays(): " + resp.data
                
@@ -245,8 +261,8 @@ def parse(String msg) {
             if (cd) {
                 def upRelayStatus = relayStatus[(i*2)-2] as int // Relay for "up" (odd relay)
                 def downRelayStatus = relayStatus[(i*2)-1] as int // Relay for "down" (even relay)
-                log.debug "upRelayStatus = " + upRelayStatus
-                log.debug "downRelayStatus = " + downRelayStatus    
+                ///log.debug "upRelayStatus = " + upRelayStatus
+                //log.debug "downRelayStatus = " + downRelayStatus    
                     
                  if (upRelayStatus == 1) {
                         cd.parse([[name: "switch", value: "up", descriptionText: "${cd.displayName} was moved up"]])
@@ -276,11 +292,11 @@ def updateChildStatus(int curtainNumber, String upRelayStatus, String downRelayS
     def cd = getChildDevice(chdid)
     if (cd) {
         if (upRelayStatus == "1") {
-            cd.parse([[name: "switch", value: "up", descriptionText: "${cd.displayName} was moved up"]])
+            cd.parse([[name: "switch", value: "up", descriptionText: "${cd.displayName} was moved up by switch0"]])
         } else if (downRelayStatus == "1") {
-            cd.parse([[name: "switch", value: "down", descriptionText: "${cd.displayName} was moved down"]])
+            cd.parse([[name: "switch", value: "down", descriptionText: "${cd.displayName} was moved down by switch0"]])
         } else {
-            cd.parse([[name: "switch", value: "stop", descriptionText: "${cd.displayName} was stopped"]])
+            cd.parse([[name: "switch", value: "stop", descriptionText: "${cd.displayName} was stopped by switch0"]])
         }
     }
 }
@@ -428,11 +444,13 @@ void on(cd) {
 }
 
 void off(cd) {
-    def relay = getRelayNumber(cd)
+   def relay = getRelayNumber(cd)
     def downRelay = relay * 2
     sendCommand("1${downRelay}") // Command to turn on the "down" relay
     logInfo("Curtain ${cd.displayName} moved DOWN")
+    //sendEvent(name: "switch", value: "off")
     runIn(settings.stopTime, "stop", [data: cd]) // Schedule stop after stopTime
+
 }
 
 void stop(cd) {
@@ -441,8 +459,11 @@ void stop(cd) {
     def downRelay = relay * 2
     sendCommand("2${upRelay}") // Command to turn off the "up" relay
     sendCommand("2${downRelay}") // Command to turn off the "down" relay
-    logInfo("Curtain ${cd.displayName} was stopped")
-    sendEvent(name: "curtainStatus", value: "stop", isStateChange: false)
+    logInfo("Curtain ${cd.displayName} was stopped")  
+    curtainStatus = "stop" 
+    log.info "STOP was executed for " + cd.displayName  
+    sendEvent(name: "vaicagarsupportedCommands", value: "stop")
+    
     
 }
 
@@ -450,6 +471,7 @@ private getRelayNumber(cd) {
     def substr1 = cd.deviceNetworkId.indexOf("-", cd.deviceNetworkId.indexOf("-") + 1)
     def result01 = cd.deviceNetworkId.length() - substr1
     def numervalue1 = result01 > 2 ? cd.deviceNetworkId[substr1+1..substr1+2] : cd.deviceNetworkId[substr1+1]
+    log.info "getrelaynumber " + numervalue1
     return numervalue1 as Integer
 }
 
@@ -488,3 +510,173 @@ void logWarn(String msg, boolean force = false) {
 void logError(String msg) {
     log.error "${drvThis}: ${msg}"
 }
+345
+}
+346
+​
+347
+def connectionCheck() {
+348
+    def now = now()
+349
+    def timeSinceLastMessage = now - state.lastMessageReceivedAt
+350
+    if (timeSinceLastMessage > (checkInterval * 1000)) {
+351
+        logError("ConnectionCheck: No messages received for ${timeSinceLastMessage / 1000} seconds. Attempting to reconnect...")
+352
+        
+353
+        // Set board status to offline
+354
+        if (boardstatus != "offline") {
+355
+            setBoardStatus("offline")  // This will handle the notification
+356
+        }
+357
+​
+358
+        // Attempt immediate reconnection
+359
+        initialize()
+360
+​
+361
+        // Schedule the next connection check with exponential backoff
+362
+        def retryCount = state.retryCount ?: 0
+363
+        def retryDelay = Math.min(300, (retryCount + 1) * 60) // Exponential backoff, max 5 minutes
+364
+        state.retryCount = retryCount + 1
+365
+        runIn(retryDelay, "connectionCheck")
+366
+    } else {
+367
+        logInfo("Connection Check: Status OK - Board Online")
+368
+        
+369
+        // Reset retry count if connection is stable
+370
+        state.retryCount = 0
+371
+​
+372
+        if (boardstatus != "online") {
+373
+            setBoardStatus("online")  // This will handle the notification
+374
+        }
+375
+​
+376
+        // Schedule the next connection check
+377
+        runIn(checkInterval, "connectionCheck")
+378
+    }
+379
+}
+380
+​
+381
+def setBoardStatus(String status) {
+382
+    if (state.boardstatus != status) {
+383
+​
+384
+        sendEvent(name: "boardstatus", value: status, isStateChange: true)
+385
+        boardstatus = status
+386
+        state.boardstatus = status
+387
+        
+388
+        // Check if a notification has already been sent for this status
+389
+        if (state.lastNotificationStatus != status) {
+390
+            state.lastNotificationStatus = status  // Update the last notification status
+391
+            if (status == "online") {
+392
+                logInfo("MolSmart Board is now online.")  // Log message for online
+393
+                if (settings.enableNotifications) {
+394
+                    sendPush("MolSmart Board is now online.")  // Send notification
+395
+                }
+396
+            } else if (status == "offline") {
+397
+                logInfo("MolSmart Board is now offline.") // Log message for offline
+398
+                if (settings.enableNotifications) {
+399
+                    sendPush("MolSmart Board is now offline.") // Send notification
+400
+                }
+401
+            }
+402
+        }
+403
+    }
+404
+}
+405
+​
+406
+​
+407
+void componentRefresh(cd){
+408
+    if (logEnable) log.info "received refresh request from ${cd.displayName}"
+409
+    refresh()
+410
+}
+411
+​
+412
+void componentOn(cd){
+413
+    if (logEnable) log.info "received on request from ${cd.displayName}"
+414
+    on(cd)
+415
+}
+416
+​
+417
+void componentOff(cd){
+418
+    if (logEnable) log.info "received off request from ${cd.displayName}"
+419
+    off(cd)
+420
+}
+421
+​
+422
+void componentStop(cd){
+423
+    if (logEnable) log.info "received stop request from ${cd.displayName}"
+424
+    stop(cd)
+425
+}
+426
+​
+427
+​
+428
+​
+429
+void on(cd) {
