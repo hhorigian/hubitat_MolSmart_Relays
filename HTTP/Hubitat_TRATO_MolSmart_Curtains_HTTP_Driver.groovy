@@ -14,6 +14,7 @@
  *
  *      1.0 21/2/2025  - V.BETA 1. Com Variável na configuração para Tempo para automaticamente parar o UP/DOWN. 
  *      1.1 28/3/2025  - Updated to use HTTP commands instead of TCP
+ *      1.2 - Added 600 Seconds channel verification and 1-second delays between commands
  */
 
 metadata {
@@ -68,6 +69,7 @@ def installed() {
     state.lastMovementCommands = [:]  // Only tracks up/down movements    
     state.currentMovementStatus = [:] // Tracks current movement state    
     boardstatus = "offline"
+    runIn(55, "verifyAllChannelsOff") // Start the 30-second verification
 }
 
 def uninstalled() {
@@ -80,8 +82,8 @@ def updated() {
     refresh()
     state.lastMovementCommands = [:]  // Only tracks up/down movements
     state.currentMovementStatus = [:] // Tracks current movement state    
-    
-
+    unschedule()
+    runIn(55, "verifyAllChannelsOff") // Restart the 30-second verification after update
 }
 
 def initialize() {
@@ -103,6 +105,24 @@ def initialize() {
     }
 
     runIn(10, "refresh")
+    runIn(30, "verifyAllChannelsOff") // Start the 30-second verification
+}
+
+// Modified verifyAllChannelsOff method
+def verifyAllChannelsOff() {
+    // Skip verification if any movement is in progress
+    if (isAnyMovementInProgress()) {
+        logDebug("Skipping channel verification - movement in progress")
+    } else {
+        logDebug("Verifying all channels are off")
+        if (state.inputcount) {
+            for (int i = 1; i <= state.inputcount; i++) {
+                sendHTTPCommand(i, "off")
+                pauseExecution(2000) // 2-second delay between commands
+            }
+        }
+    }
+    runIn(30, "verifyAllChannelsOff") // Reschedule for 30 seconds later
 }
 
 def createchilds() {
@@ -174,7 +194,6 @@ def parseRelayStatus(responseText) {
     }
 }
 
-
 void updateChildStatus(int curtainNumber, int upRelayStatus, int downRelayStatus) {
     def curtainNumberStr = curtainNumber < 10 ? "0${curtainNumber}" : "${curtainNumber}"
     def chdid = "${state.netids}${curtainNumberStr}"
@@ -225,7 +244,7 @@ def masteron() {
         def cd = getChildDevice(chdid)
         if (cd) {
             on(cd)
-            pauseExecution(200)
+            pauseExecution(1000) // 2-second delay between commands
         }
     }
 }
@@ -238,7 +257,7 @@ def masteroff() {
         def cd = getChildDevice(chdid)
         if (cd) {
             off(cd)
-            pauseExecution(200)
+            pauseExecution(1000) // 2-second delay between commands
         }
     }
 }
@@ -279,7 +298,6 @@ void componentRefresh(cd){
     refresh()
 }
 
-// Updated component methods with direction change prevention
 void componentOn(cd) {
     if (logEnable) log.info "received on request from ${cd.displayName}"
     def childDevice = getChildDevice(cd.deviceNetworkId)
@@ -302,6 +320,12 @@ void componentOn(cd) {
         
         def relay = getRelayNumber(cd)
         def upRelay = (relay * 2) - 1
+        
+        // First turn off any existing movement
+        sendHTTPCommand(upRelay, "off")
+        pauseExecution(2000) // 2-second delay
+        sendHTTPCommand(upRelay+1, "off") // Ensure down relay is also off
+        pauseExecution(2000) // 2-second delay
         
         if (sendHTTPCommand(upRelay, "on")) {
             logInfo("Curtain ${childDevice.displayName} moving UP")
@@ -339,6 +363,12 @@ void componentOff(cd) {
         def relay = getRelayNumber(cd)
         def downRelay = relay * 2
         
+        // First turn off any existing movement
+        sendHTTPCommand(downRelay, "off")
+        pauseExecution(2000) // 2-second delay
+        sendHTTPCommand(downRelay-1, "off") // Ensure up relay is also off
+        pauseExecution(2000) // 2-second delay
+        
         if (sendHTTPCommand(downRelay, "on")) {
             logInfo("Curtain ${childDevice.displayName} moving DOWN")
             childDevice.sendEvent(name: "switch", value: "on", descriptionText: "${childDevice.displayName} is moving down")
@@ -361,6 +391,7 @@ void componentStop(cd) {
         def downRelay = relay * 2
         
         sendHTTPCommand(upRelay, "off")
+        pauseExecution(2000) // 2-second delay
         sendHTTPCommand(downRelay, "off")
         
         logInfo("Curtain ${childDevice.displayName} stopped")  
@@ -413,6 +444,17 @@ def setBoardStatus(String status) {
         }
     }
 }
+
+// Add this new method to check if any movement is in progress
+private boolean isAnyMovementInProgress() {
+    if (state.currentMovementStatus) {
+        return state.currentMovementStatus.any { key, value -> value in ["up", "down"] }
+    }
+    return false
+}
+
+
+
 
 def connectionCheck() {
     queryBoardStatus()
