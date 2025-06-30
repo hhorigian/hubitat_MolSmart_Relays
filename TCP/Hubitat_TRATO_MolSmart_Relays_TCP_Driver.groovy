@@ -35,6 +35,7 @@
  *						 - UPDATE: Added Variable for Check Interval in seconds, 
  *						 - UPDATE: Added option for enable notifications. 
  *        2.6 17/02/2025 - Fixed Return Inputs for 2CH Board. 
+ *        2.7 17/02/2025 - 30/06/2025 - Added Button for "Atualiza IP + Porta" se for alterada/trocada a placa da Mol. 
 *
  */
 metadata {
@@ -51,7 +52,7 @@ import groovy.transform.Field
 //command "buscainputcount"
 //command "createchilds"
 //command "connectionCheck"
-//command "ManualKeepAlive"
+command "AtualizaIPPorta"
 //command "queryBoardStatus"
 
 command "masteron"
@@ -111,8 +112,8 @@ def updated() {
 }
 
 
-def ManualKeepAlive (){
-    logTrace('ManualKeepAlive()')
+def AtualizaIPPorta (){
+    logTrace('AtualizaDadosPlaca()')
     interfaces.rawSocket.close();
     unschedule()
     
