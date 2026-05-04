@@ -35,7 +35,10 @@
  *						 - UPDATE: Added Variable for Check Interval in seconds, 
  *						 - UPDATE: Added option for enable notifications. 
  *        2.6 17/02/2025 - Fixed Return Inputs for 2CH Board. 
- *        2.7 17/02/2025 - 30/06/2025 - Added Button for "Atualiza IP + Porta" se for alterada/trocada a placa da Mol. 
+ *        2.7 17/02/2025 - 30/06/2025 - Added Button for "Atualiza IP + Porta" se for alterada/trocada a placa da Mol.
+ *        2.8 24/04/2026 - Adição de campos de nome por canal nas Preferences (renomeia todos os childs de uma vez ao salvar).
+ *                       - updated() agora chama initialize() automaticamente ao salvar.
+ *                       - Adição de Heartbeat configurável (padrão 30s): envia "00" para manter conexão TCP ativa.
 *
  */
 metadata {
@@ -76,11 +79,23 @@ command "masteroff"
         input 'logInfo', 'bool', title: 'Show Info Logs?',  required: false, defaultValue: false
         input 'logDebug', 'bool', title: 'Show Debug Logs?', description: 'Only leave on when required', required: false, defaultValue: false
 	    input "checkInterval", "number", title: "Connection Check Interval (seconds)", defaultValue: 90, required: true
-        input "enableNotifications", "bool", title: "Enable Connection Status Notifications", defaultValue: false      
-      
-    
+        input "heartbeatInterval", "number", title: "Heartbeat Interval (seconds)", defaultValue: 30, required: true
+        input "enableNotifications", "bool", title: "Enable Connection Status Notifications", defaultValue: false
+
+        // Nomes dos Canais — aparece após inicialização (Save IP+Porta primeiro)
+        if (state?.inputcount) {
+            input name: "channelNamesTitle", type: "hidden", title: "<hr><b>Nomes dos Canais</b> — edite e clique Save para renomear todos de uma vez"
+            def maxCh = (state.inputcount as Integer)
+            for (int i = 1; i <= maxCh; i++) {
+                String num = i < 10 ? "0${i}" : "${i}"
+                input "ch${num}_name", "text", title: "Canal ${num}", required: false
+            }
+        } else {
+            input name: "channelNamesTitle", type: "hidden", title: "<hr><i>Salve o IP+Porta e aguarde a inicialização para configurar os nomes dos canais.</i>"
+        }
+
     //help guide
-    input name: "UserGuide", type: "hidden", title: fmtHelpInfo("Manual do Driver") 
+    input name: "UserGuide", type: "hidden", title: fmtHelpInfo("Manual do Driver")
 
     attribute "powerstatus", "string"
     attribute "boardstatus", "string"
@@ -107,8 +122,26 @@ def uninstalled() {
 } //OK
 
 def updated() {
-    logTrace('updated()')   
-    refresh()
+    logTrace('updated()')
+    applyChannelNames()
+    initialize()
+}
+
+def applyChannelNames() {
+    if (!state?.inputcount) return
+    String thisId = device.id
+    def maxCh = (state.inputcount as Integer)
+    for (int i = 1; i <= maxCh; i++) {
+        String num = i < 10 ? "0${i}" : "${i}"
+        String newName = settings["ch${num}_name"]
+        if (newName && newName.trim()) {
+            def cd = getChildDevice("${thisId}-Switch-${num}")
+            if (cd) {
+                cd.setLabel(newName.trim())
+                logInfo("Canal ${num} renomeado para: ${newName.trim()}")
+            }
+        }
+    }
 }
 
 
@@ -126,6 +159,7 @@ def AtualizaIPPorta (){
         state.lastMessageReceivedAt = now()
         setBoardStatus("online")
         runIn(checkInterval, "connectionCheck")
+        runIn((settings.heartbeatInterval ?: 30) as int, "heartbeat")
     }
 
     catch (e) {
@@ -172,6 +206,7 @@ def initialize() {
         state.lastMessageReceivedAt = now()
         setBoardStatus("online")
         runIn(checkInterval, "connectionCheck")
+        runIn((settings.heartbeatInterval ?: 30) as int, "heartbeat")
     } catch (e) {
         logError("Initialize: com ${device_IP_address} com um error: ${e.message}")
         logError("Problemas na Rede ou Conexão com o Board MolSmart - Verificar IP/PORTA/Rede/Energia")
@@ -315,13 +350,27 @@ def queryBoardStatus() {
 
 def refresh() {
     logInfo('Refresh()')
-    def msg = "REFRESH"    
+    def msg = "00"
     sendCommand(msg)
+}
+
+def heartbeat() {
+    if (state.boardstatus == "online") {
+        try {
+            interfaces.rawSocket.sendMessage("00")
+            state.lastHeartbeatSentAt = now()
+            state.lastMessageReceivedAt = now()
+            logDebug("Heartbeat: 00 enviado")
+        } catch (e) {
+            logError("Heartbeat error: ${e.message}")
+        }
+    }
+    runIn((settings.heartbeatInterval ?: 30) as int, "heartbeat")
 }
 
 
 /////////////////////////
-//Feedback e o tratamento 
+//Feedback e o tratamento
 /////////////////////////
 
  def fetchChild(String type, String name){
