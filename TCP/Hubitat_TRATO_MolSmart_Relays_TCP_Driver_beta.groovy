@@ -57,6 +57,19 @@
  *                         reliably persist state even when child's switch attribute is null (uninitialized).
  *                         cd.parse() with isStateChange:false was silently dropping null→"off" transitions.
  *                         New relay children are also initialized with sendEvent(switch:"off") at creation.
+ *        3.8 15/5/2026  - FIX: Removed verifyMasterOn/verifyMasterOff. With singleThreaded:true, the
+ *                         pauseExecution(500) inside verify blocked parse() from processing the "00"
+ *                         status response, so child states were always stale — causing spurious retries
+ *                         of relays that were already ON/OFF. masteron/masteroff now end with a simple
+ *                         runIn(3,"refresh") and rely on reconcileRelayStates (60s) for correction.
+ *        3.9 15/5/2026  - FIX: masteron/masteroff rewritten to use runIn chain (doMasterNext) instead
+ *                         of a pauseExecution loop. Each relay fires independently via runIn(1s), so
+ *                         parse() is never blocked between commands — identical behavior to componentOn
+ *                         called in sequence, which is confirmed to work reliably.
+ *        3.10 15/5/2026 - Added masterDelayMs preference (default 500ms). Values < 1000ms batch
+ *                         multiple relays per runIn call with pauseExecution between them, so parse()
+ *                         still breathes every ~1 second between batches. Example: 250ms → 3 relays
+ *                         per batch ≈ 11s for 32ch; 500ms → 1 per batch = 32s for 32ch (confirmed OK).
  */
 
 import groovy.transform.Field
@@ -106,6 +119,9 @@ metadata {
     input name: "reconnectMin",type: "number", title: "Backoff mínimo (s)", defaultValue: 5,  range: "1..120", required: true
     input name: "reconnectMax",type: "number", title: "Backoff máximo (s)", defaultValue: 60, range: "5..600", required: true
 
+    // Master on/off relay interval
+    input name: "masterDelayMs", type: "number", title: "Intervalo entre relays (master on/off) em ms", defaultValue: 500, range: "250..2000"
+
     // Inputs — contacts/buttons
     input name: "inputsActiveLow", type: "bool", title: "Entradas ativas em nível baixo? (0 = pressionado)", defaultValue: true
     input name: "inputsNormalOpen", type: "bool", title: "Contato lógico normal = OPEN?", defaultValue: false
@@ -149,7 +165,7 @@ metadata {
 @Field static final Integer DISCONNECT_DELAY_SEC = 1
 @Field static final Integer CONNECT_TIMEOUT_SEC  = 10
 @Field static final String TCP_TERMINATOR = "NONE"
-@Field static final String DRIVER_VERSION = "3.7"
+@Field static final String DRIVER_VERSION = "3.10"
 
 
 /* ===== Logger helpers ===== */
@@ -593,56 +609,44 @@ def refresh(){ logInf("Refresh() -> 00"); txRaw("00", "manual refresh") }
 
 def masteron(){
   int ch = (state?.inputcount ?: getChildDevices()?.findAll{ it.typeName.contains('Switch') }?.size() ?: 8) as int
-  logInf("Master ON: ${ch} relays (250ms/relay)")
-  for (int i=1; i<=ch; i++){ txRaw("1${i}", "masterOn"); pauseExecution(250) }
-  runIn(2, "verifyMasterOn", [overwrite:true])
-}
-
-def verifyMasterOn(){
-  int ch = (state?.inputcount ?: 0) as int
-  if (ch <= 0){ runIn(1, "refresh", [overwrite:true]); return }
-  txRaw("00", "verifyMasterOn-poll")
-  pauseExecution(500)
-  List<Integer> failed = []
-  for (int i = 1; i <= ch; i++){
-    def cd = getChildDevice(childRelayDni(i))
-    if (cd && cd.currentValue("switch") != "on") failed << i
-  }
-  if (failed){
-    logWar("masterOn verify: ${failed.size()} relay(s) não responderam, reenviando: ${failed}")
-    for (int i : failed){ txRaw("1${i}", "masterOn-retry"); pauseExecution(250) }
-    runIn(2, "refresh", [overwrite:true])
-  } else {
-    logInf("masterOn verify: todos os ${ch} relays confirmados ON.")
-    runIn(1, "refresh", [overwrite:true])
-  }
+  logInf("Master ON: ${ch} relays (1s/relay via runIn)")
+  try { unschedule("doMasterNext") } catch(e){}
+  state.masterIdx    = 1
+  state.masterCount  = ch
+  state.masterAction = "on"
+  doMasterNext()
 }
 
 def masteroff(){
   int ch = (state?.inputcount ?: getChildDevices()?.findAll{ it.typeName.contains('Switch') }?.size() ?: 8) as int
-  logInf("Master OFF: ${ch} relays (250ms/relay)")
-  for (int i=1; i<=ch; i++){ txRaw("2${i}", "masterOff"); pauseExecution(250) }
-  runIn(2, "verifyMasterOff", [overwrite:true])
+  logInf("Master OFF: ${ch} relays (1s/relay via runIn)")
+  try { unschedule("doMasterNext") } catch(e){}
+  state.masterIdx    = 1
+  state.masterCount  = ch
+  state.masterAction = "off"
+  doMasterNext()
 }
 
-def verifyMasterOff(){
-  int ch = (state?.inputcount ?: 0) as int
-  if (ch <= 0){ runIn(1, "refresh", [overwrite:true]); return }
-  txRaw("00", "verifyMasterOff-poll")
-  pauseExecution(500)
-  List<Integer> failed = []
-  for (int i = 1; i <= ch; i++){
-    def cd = getChildDevice(childRelayDni(i))
-    if (cd && cd.currentValue("switch") != "off") failed << i
+def doMasterNext(){
+  int idx = (state.masterIdx   ?: 0) as int
+  int ch  = (state.masterCount ?: 0) as int
+  if (idx < 1 || ch <= 0 || idx > ch){ runIn(2, "refresh", [overwrite:true]); return }
+
+  int delayMs   = clampInt(settings?.masterDelayMs, 250, 2000)
+  // If delay < 1000ms, batch multiple relays per runIn call (parse() breathes between batches)
+  int batchSize = (delayMs < 1000) ? Math.max(1, (int)(900 / delayMs)) : 1
+  String prefix = (state.masterAction == "on") ? "1" : "2"
+
+  for (int b = 0; b < batchSize && idx <= ch; b++){
+    txRaw("${prefix}${idx}", "master${state.masterAction}")
+    logDbg("doMasterNext: relay ${idx}/${ch} ${state.masterAction}")
+    idx++
+    if (b < batchSize - 1 && idx <= ch) pauseExecution(delayMs)
   }
-  if (failed){
-    logWar("masterOff verify:a ${failed.size()} relay(s) não responderam, reenviando: ${failed}")
-    for (int i : failed){ txRaw("2${i}", "masterOff-retry"); pauseExecution(250) }
-    runIn(2, "refresh", [overwrite:true])
-  } else {
-    logInf("masterOff verify: todos os ${ch} relays confirmados OFF.")
-    runIn(1, "refresh", [overwrite:true])
-  }
+
+  state.masterIdx = idx
+  if (idx <= ch) runIn(1, "doMasterNext", [overwrite:true])
+  else           runIn(2, "refresh",      [overwrite:true])
 }
 
 def componentRefresh(cd){ logInf("componentRefresh from ${cd?.displayName}"); txRaw("00", "componentRefresh") }
